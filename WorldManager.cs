@@ -11,6 +11,7 @@ public class WorldManager
     public GameLocation CurrentLocation { get; private set; }
     public Camera2D Camera { get; private set; }
     public Player Player { get; private set; }
+    public InputManager Input { get; private set; }
 
     // World metadata
     public string CurrentLocationName { get; private set; } = "Farm";
@@ -19,9 +20,20 @@ public class WorldManager
     // Save file name for debug saves
     private const string DebugSaveFile = "debug_save.json";
 
+    // Tool interaction range (in pixels, ~1.5 tiles)
+    private const float InteractionRange = 96f;
+
+    // Current targeting state
+    private Point _targetTile;
+    private bool _targetInRange;
+
     private Texture2D _pixel;
-    private KeyboardState _previousKeyboard;
+    private Texture2D _playerSpritesheet;
     private GraphicsDevice _graphicsDevice;
+
+    // Spritesheet frame dimensions
+    private const int SpriteFrameWidth = 32;
+    private const int SpriteFrameHeight = 32;
 
     public WorldManager()
     {
@@ -31,12 +43,19 @@ public class WorldManager
     {
         _graphicsDevice = graphicsDevice;
 
+        // Create input manager
+        Input = new InputManager();
+
         // Create 1x1 white pixel texture for placeholder rendering
         _pixel = new Texture2D(graphicsDevice, 1, 1);
         _pixel.SetData(new[] { Color.White });
 
-        // Create camera
-        Camera = new Camera2D(graphicsDevice.Viewport);
+        // Create placeholder spritesheet for player animation
+        _playerSpritesheet = SpriteAnimator.CreatePlaceholderSpritesheet(
+            graphicsDevice, SpriteFrameWidth, SpriteFrameHeight);
+
+        // Create camera (uses GraphicsDevice for dynamic viewport)
+        Camera = new Camera2D(graphicsDevice);
 
         // Generate world seed
         WorldSeed = Environment.TickCount;
@@ -44,39 +63,172 @@ public class WorldManager
         // Load test map
         CurrentLocation = GameLocation.CreateTestMap();
 
-        // Spawn player at tile (5, 5) as per requirements
+        // Spawn player at tile (7, 7) - away from water and stone
         var startPosition = new Vector2(
-            5 * GameLocation.TileSize + GameLocation.TileSize / 2f,
-            5 * GameLocation.TileSize + GameLocation.TileSize / 2f
+            7 * GameLocation.TileSize + GameLocation.TileSize / 2f,
+            7 * GameLocation.TileSize + GameLocation.TileSize / 2f
         );
         Player = new Player(startPosition);
+
+        // Initialize player spritesheet
+        Player.SetSpritesheet(_playerSpritesheet, SpriteFrameWidth, SpriteFrameHeight);
     }
 
     public void Update(GameTime gameTime)
     {
-        var keyboard = Keyboard.GetState();
+        // Update input state first
+        Input.Update();
 
         // Debug Save/Load hotkeys: K = Save, L = Load
-        if (IsKeyPressed(keyboard, Keys.K))
+        if (Input.IsKeyPressed(Keys.K))
         {
             Save();
         }
-        if (IsKeyPressed(keyboard, Keys.L))
+        if (Input.IsKeyPressed(Keys.L))
         {
             Load();
         }
 
         // Update player movement
-        Player.Update(gameTime, keyboard);
+        Player.Update(gameTime, Input.GetKeyboardState());
+
+        // Update inventory (slot selection via scroll/number keys)
+        Player.Inventory.Update(Input.GetKeyboardState(), Input.GetMouseState());
 
         // Camera follows player
         Camera.CenterOn(Player.Center);
 
-        _previousKeyboard = keyboard;
+        // Update targeting
+        UpdateTargeting();
+
+        // Handle tool use on left click
+        if (Input.IsLeftMousePressed())
+        {
+            TryUseTool();
+        }
     }
+
+    #region Targeting & Tool Interaction
+
+    private void UpdateTargeting()
+    {
+        // Get tile under mouse cursor
+        _targetTile = Input.GetMouseTilePosition(Camera);
+
+        // Calculate distance from player to target tile center
+        var tileCenterWorld = InputManager.GetTileCenterWorld(_targetTile);
+        float distance = Vector2.Distance(Player.Center, tileCenterWorld);
+
+        _targetInRange = distance <= InteractionRange;
+    }
+
+    private void TryUseTool()
+    {
+        // Get active item
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is not Tool tool)
+        {
+            Console.WriteLine("[Tool] No tool selected");
+            return;
+        }
+
+        // Range check
+        if (!_targetInRange)
+        {
+            Console.WriteLine("[Tool] Target out of range");
+            return;
+        }
+
+        // Validate tile is in bounds
+        if (_targetTile.X < 0 || _targetTile.X >= CurrentLocation.Width ||
+            _targetTile.Y < 0 || _targetTile.Y >= CurrentLocation.Height)
+        {
+            Console.WriteLine("[Tool] Target out of bounds");
+            return;
+        }
+
+        // Use the tool
+        InteractWithTile(_targetTile, tool);
+    }
+
+    /// <summary>
+    /// Apply tool effect to a tile based on tool type.
+    /// </summary>
+    private void InteractWithTile(Point tileCoords, Tool tool)
+    {
+        var currentTile = CurrentLocation.GetTile(tileCoords.X, tileCoords.Y);
+
+        switch (tool.RegistryKey)
+        {
+            case "hoe":
+            case "earth_wand":
+                // Hoe/Earth Wand: Grass/Dirt → Tilled
+                if (currentTile.Id == Tile.Grass.Id)
+                {
+                    CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
+                    Console.WriteLine($"[{tool.Name}] Tilled grass at ({tileCoords.X}, {tileCoords.Y})");
+                }
+                else if (currentTile.Id == Tile.Dirt.Id)
+                {
+                    CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
+                    Console.WriteLine($"[{tool.Name}] Tilled dirt at ({tileCoords.X}, {tileCoords.Y})");
+                }
+                else
+                {
+                    Console.WriteLine($"[{tool.Name}] Can't till this tile (ID: {currentTile.Id})");
+                }
+                break;
+
+            case "pickaxe":
+                // Pickaxe: Stone → Dirt
+                if (currentTile.Id == Tile.Stone.Id)
+                {
+                    CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Dirt);
+                    Console.WriteLine($"[Pickaxe] Broke stone at ({tileCoords.X}, {tileCoords.Y})");
+                }
+                else
+                {
+                    Console.WriteLine($"[Pickaxe] Can't break this tile (ID: {currentTile.Id})");
+                }
+                break;
+
+            case "watering_can":
+            case "hydro_wand":
+                // Watering Can/Hydro Wand: Tilled/Dirt → WetDirt
+                if (currentTile.Id == Tile.Tilled.Id || currentTile.Id == Tile.Dirt.Id)
+                {
+                    CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.WetDirt);
+                    Console.WriteLine($"[{tool.Name}] Watered soil at ({tileCoords.X}, {tileCoords.Y})");
+                }
+                else
+                {
+                    Console.WriteLine($"[{tool.Name}] Can't water this tile (ID: {currentTile.Id})");
+                }
+                break;
+
+            case "axe":
+                // Axe: (future - chop trees/stumps)
+                Console.WriteLine($"[Axe] Nothing to chop at ({tileCoords.X}, {tileCoords.Y})");
+                break;
+
+            case "scythe":
+                // Scythe: (future - harvest crops)
+                Console.WriteLine($"[Scythe] Nothing to harvest at ({tileCoords.X}, {tileCoords.Y})");
+                break;
+
+            default:
+                Console.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
+                break;
+        }
+    }
+
+    #endregion
+
+    #region Drawing
 
     public void Draw(SpriteBatch spriteBatch)
     {
+        // === World rendering (camera transform) ===
         spriteBatch.Begin(
             sortMode: SpriteSortMode.Deferred,
             blendState: BlendState.AlphaBlend,
@@ -85,52 +237,183 @@ public class WorldManager
         );
 
         CurrentLocation.Draw(spriteBatch, _pixel, Camera);
+        DrawReticle(spriteBatch);
         Player.Draw(spriteBatch, _pixel);
+
+        spriteBatch.End();
+
+        // === UI rendering (screen space, no transform) ===
+        spriteBatch.Begin(
+            sortMode: SpriteSortMode.Deferred,
+            blendState: BlendState.AlphaBlend,
+            samplerState: SamplerState.PointClamp
+        );
+
+        DrawHotbar(spriteBatch);
 
         spriteBatch.End();
     }
 
-    #region Save/Load Integration
-
     /// <summary>
-    /// Converts live game objects → SaveData (DTO).
-    /// This is the "Live to Data" conversion.
+    /// Draw targeting reticle over the selected tile.
+    /// Green = in range, Red = out of range.
     /// </summary>
+    private void DrawReticle(SpriteBatch spriteBatch)
+    {
+        // Only show reticle if a tool is selected
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is not Tool)
+            return;
+
+        // Validate tile is in map bounds
+        if (_targetTile.X < 0 || _targetTile.X >= CurrentLocation.Width ||
+            _targetTile.Y < 0 || _targetTile.Y >= CurrentLocation.Height)
+            return;
+
+        // Calculate tile rectangle in world coordinates
+        var tileRect = new Rectangle(
+            _targetTile.X * GameLocation.TileSize,
+            _targetTile.Y * GameLocation.TileSize,
+            GameLocation.TileSize,
+            GameLocation.TileSize
+        );
+
+        // Color based on range: Green = in range, Red = out of range
+        Color reticleColor = _targetInRange
+            ? new Color(0, 255, 0, 100)   // Semi-transparent green
+            : new Color(255, 0, 0, 100);  // Semi-transparent red
+
+        // Draw filled rectangle
+        spriteBatch.Draw(_pixel, tileRect, reticleColor);
+
+        // Draw white border for visibility
+        int borderWidth = 2;
+        Color borderColor = new Color(255, 255, 255, 150);
+
+        // Top border
+        spriteBatch.Draw(_pixel, new Rectangle(tileRect.X, tileRect.Y, tileRect.Width, borderWidth), borderColor);
+        // Bottom border
+        spriteBatch.Draw(_pixel, new Rectangle(tileRect.X, tileRect.Bottom - borderWidth, tileRect.Width, borderWidth), borderColor);
+        // Left border
+        spriteBatch.Draw(_pixel, new Rectangle(tileRect.X, tileRect.Y, borderWidth, tileRect.Height), borderColor);
+        // Right border
+        spriteBatch.Draw(_pixel, new Rectangle(tileRect.Right - borderWidth, tileRect.Y, borderWidth, tileRect.Height), borderColor);
+    }
+
+    #endregion
+
+    #region HUD Drawing
+
+    private const int SlotSize = 50;
+    private const int SlotPadding = 4;
+    private const int HotbarY = 10;
+
+    private void DrawHotbar(SpriteBatch spriteBatch)
+    {
+        var viewport = _graphicsDevice.Viewport;
+        int totalWidth = Inventory.HotbarSize * (SlotSize + SlotPadding) - SlotPadding;
+        int startX = (viewport.Width - totalWidth) / 2;
+        int startY = viewport.Height - SlotSize - HotbarY;
+
+        for (int i = 0; i < Inventory.HotbarSize; i++)
+        {
+            int x = startX + i * (SlotSize + SlotPadding);
+            var slotRect = new Rectangle(x, startY, SlotSize, SlotSize);
+
+            bool isSelected = i == Player.Inventory.ActiveSlotIndex;
+            var item = Player.Inventory.GetSlot(i);
+
+            // Draw slot background (white border for selected)
+            Color borderColor = isSelected ? Color.White : new Color(60, 60, 60);
+            spriteBatch.Draw(_pixel, slotRect, borderColor);
+
+            // Draw inner area
+            var innerRect = new Rectangle(x + 3, startY + 3, SlotSize - 6, SlotSize - 6);
+            Color innerColor = isSelected ? new Color(80, 80, 80) : new Color(40, 40, 40);
+            spriteBatch.Draw(_pixel, innerRect, innerColor);
+
+            // Draw item indicator
+            if (item != null)
+            {
+                Color itemColor = GetItemColor(item);
+                var itemRect = new Rectangle(x + 8, startY + 8, SlotSize - 16, SlotSize - 16);
+                spriteBatch.Draw(_pixel, itemRect, itemColor);
+
+                // Quantity dots for materials
+                if (item is Material mat && mat.Quantity > 1)
+                {
+                    int dots = Math.Min(mat.Quantity / 10, 5);
+                    for (int d = 0; d < dots; d++)
+                    {
+                        var dotRect = new Rectangle(x + 6 + d * 6, startY + SlotSize - 10, 4, 4);
+                        spriteBatch.Draw(_pixel, dotRect, Color.White);
+                    }
+                }
+            }
+
+            // Slot number indicator
+            var numRect = new Rectangle(x + SlotSize - 12, startY + 2, 10, 10);
+            Color numColor = isSelected ? Color.Black : new Color(150, 150, 150);
+            spriteBatch.Draw(_pixel, numRect, numColor);
+        }
+    }
+
+    private static Color GetItemColor(Item item)
+    {
+        return item.RegistryKey switch
+        {
+            // Standard Tools
+            "hoe" => new Color(139, 90, 43),
+            "axe" => new Color(100, 100, 100),
+            "pickaxe" => new Color(120, 120, 140),
+            "watering_can" => new Color(80, 130, 200),
+            "scythe" => new Color(180, 180, 100),
+            // Magic Wands
+            "earth_wand" => new Color(180, 140, 60),   // Golden brown (magical earth)
+            "hydro_wand" => new Color(60, 180, 255),   // Bright cyan (magical water)
+            // Materials
+            "wood" => new Color(139, 90, 43),
+            "stone" => new Color(128, 128, 128),
+            "fiber" => new Color(34, 139, 34),
+            "coal" => new Color(30, 30, 30),
+            "copper_ore" => new Color(184, 115, 51),
+            _ => item switch
+            {
+                Tool => new Color(100, 150, 255),
+                Material => new Color(180, 160, 140),
+                _ => new Color(200, 200, 200)
+            }
+        };
+    }
+
+    #endregion
+
+    #region Save/Load
+
     public SaveData CreateSaveData()
     {
         return new SaveData
         {
-            // Player state
             PlayerPositionX = Player.Position.X,
             PlayerPositionY = Player.Position.Y,
             PlayerName = Player.Name,
-
-            // World state
             CurrentLocationName = CurrentLocationName,
-            WorldSeed = WorldSeed
+            WorldSeed = WorldSeed,
+            InventorySlots = Player.Inventory.ToSaveList(),
+            ActiveHotbarSlot = Player.Inventory.ActiveSlotIndex
         };
     }
 
-    /// <summary>
-    /// Applies SaveData (DTO) → live game objects.
-    /// This is the "Data to Live" conversion.
-    /// </summary>
     public void ApplySaveData(SaveData data)
     {
-        // Restore player state
         Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
         Player.Name = data.PlayerName;
-
-        // Restore world state
         CurrentLocationName = data.CurrentLocationName;
         WorldSeed = data.WorldSeed;
-
-        // Future: regenerate/load location based on CurrentLocationName and WorldSeed
+        Player.Inventory.LoadFromSaveList(data.InventorySlots);
+        Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
     }
 
-    /// <summary>
-    /// Debug save - triggered by K key.
-    /// </summary>
     public void Save()
     {
         Console.WriteLine("[WorldManager] Saving game...");
@@ -138,9 +421,6 @@ public class WorldManager
         SaveManager.Save(DebugSaveFile, data);
     }
 
-    /// <summary>
-    /// Debug load - triggered by L key.
-    /// </summary>
     public void Load()
     {
         Console.WriteLine("[WorldManager] Loading game...");
@@ -153,9 +433,4 @@ public class WorldManager
     }
 
     #endregion
-
-    private bool IsKeyPressed(KeyboardState current, Keys key)
-    {
-        return current.IsKeyDown(key) && !_previousKeyboard.IsKeyDown(key);
-    }
 }

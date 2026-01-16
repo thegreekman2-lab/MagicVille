@@ -11,8 +11,11 @@ public readonly struct Tile
         Walkable = walkable;
     }
 
-    // Hardcoded tile types for V0
+    // Tile type definitions
     public static readonly Tile Grass = new(0, true);
     public static readonly Tile Dirt = new(1, true);
     public static readonly Tile Water = new(2, false);
+    public static readonly Tile Stone = new(3, true);      // Breakable with pickaxe
+    public static readonly Tile WetDirt = new(4, true);    // Watered farmland
+    public static readonly Tile Tilled = new(5, true);     // Tilled soil (hoed)
 }

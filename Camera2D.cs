@@ -8,11 +8,14 @@ public class Camera2D
     public Vector2 Position { get; set; }
     public float Zoom { get; set; } = 1f;
 
-    private readonly Viewport _viewport;
+    private readonly GraphicsDevice _graphicsDevice;
 
-    public Camera2D(Viewport viewport)
+    /// <summary>Current viewport (always reflects current window size).</summary>
+    private Viewport Viewport => _graphicsDevice.Viewport;
+
+    public Camera2D(GraphicsDevice graphicsDevice)
     {
-        _viewport = viewport;
+        _graphicsDevice = graphicsDevice;
     }
 
     /// <summary>
@@ -30,7 +33,7 @@ public class Camera2D
     {
         return Matrix.CreateTranslation(-Position.X, -Position.Y, 0f) *
                Matrix.CreateScale(Zoom, Zoom, 1f) *
-               Matrix.CreateTranslation(_viewport.Width / 2f, _viewport.Height / 2f, 0f);
+               Matrix.CreateTranslation(Viewport.Width / 2f, Viewport.Height / 2f, 0f);
     }
 
     /// <summary>
@@ -38,8 +41,8 @@ public class Camera2D
     /// </summary>
     public Rectangle GetVisibleBounds()
     {
-        float width = _viewport.Width / Zoom;
-        float height = _viewport.Height / Zoom;
+        float width = Viewport.Width / Zoom;
+        float height = Viewport.Height / Zoom;
 
         return new Rectangle(
             (int)(Position.X - width / 2),

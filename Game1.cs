@@ -16,6 +16,30 @@ public class Game1 : Game
         _graphics.PreferredBackBufferHeight = 480;
 
         IsMouseVisible = true;
+
+        // Enable window resizing
+        Window.AllowUserResizing = true;
+        Window.ClientSizeChanged += OnClientSizeChanged;
+    }
+
+    /// <summary>
+    /// Handle window resize events.
+    /// Updates the graphics buffer to match the new window size.
+    /// </summary>
+    private void OnClientSizeChanged(object sender, System.EventArgs e)
+    {
+        // Get new window dimensions
+        int newWidth = Window.ClientBounds.Width;
+        int newHeight = Window.ClientBounds.Height;
+
+        // Ignore invalid sizes (can happen during minimize)
+        if (newWidth <= 0 || newHeight <= 0)
+            return;
+
+        // Update graphics buffer to match window size
+        _graphics.PreferredBackBufferWidth = newWidth;
+        _graphics.PreferredBackBufferHeight = newHeight;
+        _graphics.ApplyChanges();
     }
 
     protected override void Initialize()
