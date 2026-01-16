@@ -2,13 +2,37 @@
 
 A 2D top-down farming RPG inspired by Stardew Valley, built with C# and MonoGame.
 
-## Version 0 - Foundation
+## Version 1 - Complete Gameplay Foundation
 
-This is the initial engine foundation with:
-- Tile-based world rendering (20x20 test map)
-- Player movement (WASD/Arrow keys)
-- Camera system that follows the player
-- Save/Load system (JSON-based)
+Building on the v0 engine foundation, v1 adds:
+
+### Items & Inventory
+- Polymorphic Item system (Tool, Material) with JSON serialization
+- 10-slot hotbar with scroll wheel and number key selection (1-0)
+- Stackable materials with quantity tracking
+
+### Tools & Interaction
+- **Hoe** - Tills grass/dirt into farmable soil
+- **Pickaxe** - Breaks stone into dirt
+- **Watering Can** - Waters tilled soil
+- **Axe** - (Future: chop trees)
+- **Scythe** - (Future: harvest crops)
+
+### Magic Wands
+- **Earth Wand** - Magically tills soil (like Hoe, lower resource cost)
+- **Hydro Wand** - Conjures water (like Watering Can, lower resource cost)
+
+### World & Rendering
+- Mouse-based tile targeting with range-checking reticle (green/red)
+- Dynamic window resizing with proper coordinate conversion
+- Random 30x17 tile map generation (1920x1080 at 64px tiles)
+- Sprite animation system with direction-based spritesheets
+- New tile types: Stone, WetDirt, Tilled
+
+### Technical
+- Camera reads viewport dynamically for accurate mouse-to-world conversion
+- Polymorphic JSON serialization for inventory save/load
+- Input manager with mouse and keyboard state tracking
 
 ## Requirements
 
@@ -31,6 +55,9 @@ dotnet run        # Run the game
 | A / Left Arrow | Move left |
 | S / Down Arrow | Move down |
 | D / Right Arrow | Move right |
+| 1-9, 0 | Select hotbar slot 1-10 |
+| Scroll Wheel | Cycle hotbar slots |
+| Left Click | Use selected tool on tile |
 | K | Save game |
 | L | Load game |
 
@@ -39,43 +66,76 @@ dotnet run        # Run the game
 ```
 MagicVille/
 ├── Program.cs          # Entry point
-├── Game1.cs            # MonoGame Game class (delegates to WorldManager)
-├── WorldManager.cs     # Orchestrates game state, update, and draw
-├── GameLocation.cs     # Tile map container
-├── Tile.cs             # Tile data structure
-├── Player.cs           # Player entity with movement
-├── Camera2D.cs         # 2D camera with transform matrix
+├── Game1.cs            # MonoGame Game class (window resize handling)
+├── WorldManager.cs     # Orchestrates game state, update, draw, tool interaction
+├── GameLocation.cs     # Tile map with random generation
+├── Tile.cs             # Tile types (Grass, Dirt, Water, Stone, WetDirt, Tilled)
+├── Player.cs           # Player entity with movement and sprite animation
+├── Camera2D.cs         # 2D camera with dynamic viewport support
+├── InputManager.cs     # Mouse/keyboard input and coordinate conversion
+├── Inventory.cs        # 10-slot hotbar with item management
+├── Item.cs             # Base item class with polymorphic serialization
+├── Tool.cs             # Tool items (Hoe, Axe, Pickaxe, etc.)
+├── Material.cs         # Stackable material items (Wood, Stone, etc.)
+├── SpriteAnimator.cs   # Sprite animation with direction rows
 ├── SaveData.cs         # Serializable game state DTO
-├── SaveManager.cs      # JSON save/load utilities
+├── SaveManager.cs      # JSON save/load with polymorphic support
 └── Saves/              # Save files (created at runtime)
 ```
 
 ## Architecture
 
-### State-Driven Design
-- Game state is explicit and serializable
-- Clear separation between "Live" objects (Player, GameLocation) and "Data" objects (SaveData)
-- WorldManager acts as the central orchestrator
+### Item System
+- Abstract `Item` base class with `[JsonPolymorphic]` attributes
+- `Tool` subclass: ResourceCost, PowerLevel properties
+- `Material` subclass: Quantity, MaxStack, stackable behavior
+- Inventory handles stacking logic for materials automatically
+
+### Tool Interaction
+- InputManager converts screen coordinates to world/tile coordinates
+- Range checking (96px / ~1.5 tiles) determines valid targets
+- Visual reticle feedback: green = in range, red = out of range
+- Tool effects modify tile types (e.g., Hoe: Grass → Tilled)
 
 ### Rendering
 - Placeholder colored rectangles (no external assets required)
 - 64x64 pixel tiles
 - SpriteBatch with PointClamp sampling for crisp pixels
+- Camera transform matrix for world rendering
+- Separate UI pass for hotbar (screen space)
 
 ### Save System
 - JSON serialization via System.Text.Json
+- Polymorphic type discriminator for Item subclasses
 - Saves stored in `Saves/` folder alongside the executable
-- Clean Live↔Data conversion pattern
+- Inventory state persisted with item types and quantities
+
+## Version History
+
+### v1 - Complete Gameplay Foundation
+- Item/Tool/Material system with polymorphic serialization
+- 10-slot hotbar inventory
+- Mouse-based tool interaction with reticle
+- Magic wands (Earth Wand, Hydro Wand)
+- Dynamic window resizing
+- Sprite animation system
+- Random map generation
+
+### v0 - Foundation
+- MonoGame engine setup
+- Tile-based world rendering
+- Player movement
+- Camera system
+- JSON save/load
 
 ## What's NOT Built Yet (Future Versions)
 
 - Tile collision
-- Sprite animations
-- Inventory system
-- Tools and farming
+- Crops and farming cycle
 - NPCs and dialogue
 - Time/day cycle
 - Multiple locations
+- Sound effects and music
 
 ## License
 
