@@ -1,0 +1,26 @@
+# Build results
+bin/
+obj/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# MonoGame Content Pipeline
+*.mgcb.bak
+
+# Save files (optional - remove this line if you want to track saves)
+Saves/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Rider
+.idea/
+
+# Claude Code
+.claude/
+claude_system_prompt.txt
