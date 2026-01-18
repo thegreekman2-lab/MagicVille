@@ -77,6 +77,11 @@ public class Game1 : Game
         // === LAYER 3: UI (clock, hotbar - not affected by night filter) ===
         _world.DrawUI(_spriteBatch);
 
+        // === LAYER 4: Transition Fade (covers everything during location change) ===
+        var viewport = GraphicsDevice.Viewport;
+        var screenRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+        _world.Transition.Draw(_spriteBatch, _pixel, screenRect);
+
         base.Draw(gameTime);
     }
 

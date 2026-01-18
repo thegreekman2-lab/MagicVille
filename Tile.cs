@@ -18,4 +18,6 @@ public readonly struct Tile
     public static readonly Tile Stone = new(3, true);      // Breakable with pickaxe
     public static readonly Tile WetDirt = new(4, true);    // Watered farmland
     public static readonly Tile Tilled = new(5, true);     // Tilled soil (hoed)
+    public static readonly Tile Wood = new(6, true);       // Wood floor (interior)
+    public static readonly Tile Wall = new(7, false);      // Wall (impassable)
 }

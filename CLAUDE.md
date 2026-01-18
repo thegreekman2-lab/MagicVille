@@ -22,9 +22,16 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
 
 ### World & Tiles
-- **GameLocation.cs**: Tile map container with random generation (30x17 tiles for 1920x1080)
-- **Tile.cs**: Tile struct with ID and walkability. Types: Grass, Dirt, Water, Stone, WetDirt, Tilled
+- **GameLocation.cs**: Tile map container with name, tiles, and warp points
+- **Tile.cs**: Tile struct with ID and walkability. Types: Grass, Dirt, Water, Stone, WetDirt, Tilled, Wood, Wall
 - **Camera2D.cs**: 2D camera with dynamic viewport support for window resizing
+
+### Multi-Location System (v2.4)
+- **WorldManager.Locations**: `Dictionary<string, GameLocation>` keeps all maps in memory
+- **Warp.cs**: Defines trigger zones and target positions for location transitions
+- **TransitionManager.cs**: State machine for fade-to-black transitions
+- Locations: "Farm" (20x20 outdoor), "Cabin" (10x10 indoor)
+- State preserved when switching locations (no save/load needed for doors)
 
 ### Player & Animation
 - **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position
@@ -115,10 +122,11 @@ spriteBatch.Draw(texture, Position, sourceRect, color, 0f, origin, scale, Sprite
 - Default window: 800x480 pixels (resizable)
 - Tile size: 64x64 pixels
 - Uses `SpriteBatch` with `SamplerState.PointClamp` for crisp pixel art
-- Three render passes (UI Sandwich):
+- Four render passes:
   1. World (with camera transform)
   2. Night overlay (screen space, alpha blend)
   3. UI (screen space, unaffected by night filter)
+  4. Transition fade (screen space, covers everything during warp)
 
 ## Debug Controls
 

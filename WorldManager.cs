@@ -10,15 +10,23 @@ namespace MagicVille;
 
 public class WorldManager
 {
-    // Live game objects (initialized in Initialize())
+    // All loaded locations (persisted in memory for state preservation)
+    public Dictionary<string, GameLocation> Locations { get; private set; } = new();
+
+    // Current active location
     public GameLocation CurrentLocation { get; private set; } = null!;
+
+    // Live game objects (initialized in Initialize())
     public Camera2D Camera { get; private set; } = null!;
     public Player Player { get; private set; } = null!;
     public InputManager Input { get; private set; } = null!;
+    public TransitionManager Transition { get; private set; } = null!;
+
+    // Objects are per-location (stored in CurrentLocation context)
     public List<WorldObject> Objects { get; private set; } = new();
 
     // World metadata
-    public string CurrentLocationName { get; private set; } = "Farm";
+    public string CurrentLocationName => CurrentLocation?.Name ?? "Unknown";
     public int WorldSeed { get; private set; }
 
     // Save file name for debug saves
@@ -54,6 +62,10 @@ public class WorldManager
         // Create input manager
         Input = new InputManager();
 
+        // Create transition manager and subscribe to events
+        Transition = new TransitionManager();
+        Transition.OnSwapMap += HandleMapSwap;
+
         // Create 1x1 white pixel texture for placeholder rendering
         _pixel = new Texture2D(graphicsDevice, 1, 1);
         _pixel.SetData(new[] { Color.White });
@@ -68,10 +80,14 @@ public class WorldManager
         // Generate world seed
         WorldSeed = Environment.TickCount;
 
-        // Load test map with seed for reproducible generation
-        CurrentLocation = GameLocation.CreateTestMap(WorldSeed);
+        // Initialize all locations (kept in memory for state persistence)
+        Locations["Farm"] = GameLocation.CreateFarm(WorldSeed);
+        Locations["Cabin"] = GameLocation.CreateCabin();
 
-        // Spawn player at tile (7, 7) - away from water and stone
+        // Start on the Farm
+        CurrentLocation = Locations["Farm"];
+
+        // Spawn player at tile (7, 7) on the Farm
         var startPosition = new Vector2(
             7 * GameLocation.TileSize + GameLocation.TileSize / 2f,
             7 * GameLocation.TileSize + GameLocation.TileSize / 2f
@@ -81,15 +97,46 @@ public class WorldManager
         // Initialize player spritesheet
         Player.SetSpritesheet(_playerSpritesheet, SpriteFrameWidth, SpriteFrameHeight);
 
-        // Spawn world objects
-        SpawnTestObjects();
+        // Spawn world objects for the Farm
+        SpawnFarmObjects();
+
+        Debug.WriteLine($"[WorldManager] Initialized with {Locations.Count} locations (seed: {WorldSeed})");
     }
 
     /// <summary>
-    /// Spawn world objects using seeded random generation.
+    /// Handle the map swap when transition screen is fully black.
+    /// </summary>
+    private void HandleMapSwap(string targetLocation, Vector2 targetPosition)
+    {
+        if (!Locations.TryGetValue(targetLocation, out var newLocation))
+        {
+            Debug.WriteLine($"[Warp] ERROR: Location '{targetLocation}' not found!");
+            return;
+        }
+
+        // Switch to the new location
+        CurrentLocation = newLocation;
+        Player.Position = targetPosition;
+
+        // Clear/reload objects for the new location
+        Objects.Clear();
+        if (targetLocation == "Farm")
+        {
+            SpawnFarmObjects();
+        }
+        // Cabin has no objects for now
+
+        // Snap camera to new player position
+        Camera.CenterOn(Player.Center);
+
+        Debug.WriteLine($"[Warp] Teleported to {targetLocation} at ({targetPosition.X}, {targetPosition.Y})");
+    }
+
+    /// <summary>
+    /// Spawn world objects for the Farm location.
     /// Uses WorldSeed for reproducible placement.
     /// </summary>
-    private void SpawnTestObjects()
+    private void SpawnFarmObjects()
     {
         Objects.Clear();
 
@@ -150,8 +197,17 @@ public class WorldManager
 
     public void Update(GameTime gameTime)
     {
+        float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
         // Update input state first
         Input.Update();
+
+        // Update transition (always, even during gameplay)
+        Transition.Update(deltaTime);
+
+        // Skip gameplay updates during transition
+        if (Transition.IsTransitioning)
+            return;
 
         // Debug Save/Load hotkeys: K = Save, L = Load
         if (Input.IsKeyPressed(Keys.K))
@@ -185,13 +241,15 @@ public class WorldManager
         }
 
         // Update global time
-        float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
         TimeManager.Update(deltaTime);
 
         // Update player movement with collision checking
         int mapPixelWidth = CurrentLocation.Width * GameLocation.TileSize;
         int mapPixelHeight = CurrentLocation.Height * GameLocation.TileSize;
         Player.Update(gameTime, Input.GetKeyboardState(), CanMove, mapPixelWidth, mapPixelHeight);
+
+        // Check for warp triggers after movement
+        CheckWarpTriggers();
 
         // Update inventory (slot selection via scroll/number keys)
         Player.Inventory.Update(Input.GetKeyboardState(), Input.GetMouseState());
@@ -206,6 +264,24 @@ public class WorldManager
         if (Input.IsLeftMousePressed())
         {
             TryUseTool();
+        }
+    }
+
+    /// <summary>
+    /// Check if player is standing on a warp trigger and initiate transition.
+    /// </summary>
+    private void CheckWarpTriggers()
+    {
+        var playerBounds = Player.CollisionBounds;
+
+        foreach (var warp in CurrentLocation.Warps)
+        {
+            if (playerBounds.Intersects(warp.TriggerZone))
+            {
+                Debug.WriteLine($"[Warp] Triggered: {CurrentLocationName} -> {warp.TargetLocationName}");
+                Transition.StartTransition(warp.TargetLocationName, warp.TargetPlayerPosition);
+                return; // Only trigger one warp at a time
+            }
         }
     }
 
@@ -920,16 +996,30 @@ public class WorldManager
 
     public void ApplySaveData(SaveData data)
     {
-        // Update world metadata
-        CurrentLocationName = data.CurrentLocationName;
+        // Update world seed
         WorldSeed = data.WorldSeed;
 
-        // STEP 1: Reset map to default state using saved seed
-        CurrentLocation = GameLocation.CreateTestMap(WorldSeed);
-        Debug.WriteLine($"[WorldManager] Map reset to default (seed: {WorldSeed})");
+        // Reinitialize locations with saved seed
+        Locations["Farm"] = GameLocation.CreateFarm(WorldSeed);
+        Locations["Cabin"] = GameLocation.CreateCabin();
 
-        // STEP 2: Respawn world objects using the same seed
-        SpawnTestObjects();
+        // Switch to saved location (default to Farm if not found)
+        if (Locations.TryGetValue(data.CurrentLocationName, out var savedLocation))
+        {
+            CurrentLocation = savedLocation;
+        }
+        else
+        {
+            CurrentLocation = Locations["Farm"];
+        }
+        Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName} (seed: {WorldSeed})");
+
+        // Respawn objects for current location
+        Objects.Clear();
+        if (CurrentLocationName == "Farm")
+        {
+            SpawnFarmObjects();
+        }
 
         // STEP 3: Apply modified tiles from save data
         foreach (var tileSave in data.ModifiedTiles)

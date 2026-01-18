@@ -82,6 +82,8 @@ MagicVille/
 ├── Material.cs         # Stackable material items (Wood, Stone, etc.)
 ├── SpriteAnimator.cs   # Sprite animation with direction rows
 ├── TimeManager.cs      # Global time system and day/night cycle
+├── TransitionManager.cs # Location transition fade effects
+├── Warp.cs             # Warp point data structure
 ├── WorldObject.cs      # World objects (rocks, trees) with collision
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
@@ -120,7 +122,15 @@ MagicVille/
 
 ## Version History
 
-### v2.3 - Time System & Day/Night Cycle (Current)
+### v2.4 - Multi-Location System (Current)
+- **Location Dictionary**: Multiple maps kept in memory for state persistence
+- **Warp System**: Step on trigger zones to teleport between locations
+- **Fade Transitions**: Screen fades to black during location changes
+- **Farm** (20x20): Outdoor area with grass, dirt, pond, and cabin entrance
+- **Cabin** (10x10): Indoor wood floor room with wall borders
+- **New Tiles**: Wood floor, Wall (impassable)
+
+### v2.3 - Time System & Day/Night Cycle
 - **TimeManager**: Global time system (7 real seconds = 10 in-game minutes)
 - **Day/Night cycle**: Visual atmosphere with sunset/dusk/night overlays
 - **Clock UI**: Pixel-rendered clock showing "Day X - HH:MM AM/PM"
@@ -169,7 +179,6 @@ MagicVille/
 
 - Crops and farming cycle
 - NPCs and dialogue
-- Multiple locations
 - Sound effects and music
 - RenderTarget-based lighting (v3)
 
