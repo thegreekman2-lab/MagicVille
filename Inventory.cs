@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework.Input;
 
@@ -74,12 +75,12 @@ public class Inventory
             if (_slots[i] == null)
             {
                 _slots[i] = item;
-                Console.WriteLine($"[Inventory] Added {item.Name} to slot {i}");
+                Debug.WriteLine($"[Inventory] Added {item.Name} to slot {i}");
                 return true;
             }
         }
 
-        Console.WriteLine($"[Inventory] No room for {item.Name}");
+        Debug.WriteLine($"[Inventory] No room for {item.Name}");
         return false; // No space
     }
 
@@ -94,7 +95,7 @@ public class Inventory
             if (_slots[i] == item)
             {
                 _slots[i] = null;
-                Console.WriteLine($"[Inventory] Removed {item.Name} from slot {i}");
+                Debug.WriteLine($"[Inventory] Removed {item.Name} from slot {i}");
                 return true;
             }
         }
@@ -117,7 +118,7 @@ public class Inventory
         if (oldIndex != ActiveSlotIndex)
         {
             var item = GetActiveItem();
-            Console.WriteLine($"[Inventory] Selected slot {ActiveSlotIndex}: {item?.Name ?? "(empty)"}");
+            Debug.WriteLine($"[Inventory] Selected slot {ActiveSlotIndex}: {item?.Name ?? "(empty)"}");
         }
     }
 

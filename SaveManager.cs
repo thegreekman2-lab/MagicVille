@@ -54,13 +54,13 @@ public static class SaveManager
             string json = JsonSerializer.Serialize(data, JsonOptions);
             File.WriteAllText(fullPath, json);
 
-            Console.WriteLine($"[SaveManager] Game SAVED to: {fullPath}");
+            Debug.WriteLine($"[SaveManager] Game SAVED to: {fullPath}");
             Debug.WriteLine($"[SaveManager] Saved {data.InventorySlots.Count} inventory slots");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SaveManager] SAVE FAILED: {ex.Message}");
+            Debug.WriteLine($"[SaveManager] SAVE FAILED: {ex.Message}");
             Debug.WriteLine($"[SaveManager] SAVE FAILED: {ex}");
             return false;
         }
@@ -80,7 +80,7 @@ public static class SaveManager
 
             if (!File.Exists(fullPath))
             {
-                Console.WriteLine($"[SaveManager] No save file found: {fullPath}");
+                Debug.WriteLine($"[SaveManager] No save file found: {fullPath}");
                 return null;
             }
 
@@ -89,7 +89,7 @@ public static class SaveManager
 
             if (data != null)
             {
-                Console.WriteLine($"[SaveManager] Game LOADED from: {fullPath}");
+                Debug.WriteLine($"[SaveManager] Game LOADED from: {fullPath}");
                 Debug.WriteLine($"[SaveManager] Loaded {data.InventorySlots.Count} inventory slots");
 
                 // Log loaded item types for debugging
@@ -107,7 +107,7 @@ public static class SaveManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SaveManager] LOAD FAILED: {ex.Message}");
+            Debug.WriteLine($"[SaveManager] LOAD FAILED: {ex.Message}");
             Debug.WriteLine($"[SaveManager] LOAD FAILED: {ex}");
             return null;
         }
@@ -132,14 +132,14 @@ public static class SaveManager
             if (File.Exists(fullPath))
             {
                 File.Delete(fullPath);
-                Console.WriteLine($"[SaveManager] Save DELETED: {fullPath}");
+                Debug.WriteLine($"[SaveManager] Save DELETED: {fullPath}");
                 return true;
             }
             return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SaveManager] DELETE FAILED: {ex.Message}");
+            Debug.WriteLine($"[SaveManager] DELETE FAILED: {ex.Message}");
             return false;
         }
     }

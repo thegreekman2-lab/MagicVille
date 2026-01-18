@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -128,14 +129,14 @@ public class WorldManager
         var activeItem = Player.Inventory.GetActiveItem();
         if (activeItem is not Tool tool)
         {
-            Console.WriteLine("[Tool] No tool selected");
+            Debug.WriteLine("[Tool] No tool selected");
             return;
         }
 
         // Range check
         if (!_targetInRange)
         {
-            Console.WriteLine("[Tool] Target out of range");
+            Debug.WriteLine("[Tool] Target out of range");
             return;
         }
 
@@ -143,7 +144,7 @@ public class WorldManager
         if (_targetTile.X < 0 || _targetTile.X >= CurrentLocation.Width ||
             _targetTile.Y < 0 || _targetTile.Y >= CurrentLocation.Height)
         {
-            Console.WriteLine("[Tool] Target out of bounds");
+            Debug.WriteLine("[Tool] Target out of bounds");
             return;
         }
 
@@ -166,16 +167,16 @@ public class WorldManager
                 if (currentTile.Id == Tile.Grass.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
-                    Console.WriteLine($"[{tool.Name}] Tilled grass at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[{tool.Name}] Tilled grass at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else if (currentTile.Id == Tile.Dirt.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
-                    Console.WriteLine($"[{tool.Name}] Tilled dirt at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[{tool.Name}] Tilled dirt at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else
                 {
-                    Console.WriteLine($"[{tool.Name}] Can't till this tile (ID: {currentTile.Id})");
+                    Debug.WriteLine($"[{tool.Name}] Can't till this tile (ID: {currentTile.Id})");
                 }
                 break;
 
@@ -184,11 +185,11 @@ public class WorldManager
                 if (currentTile.Id == Tile.Stone.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Dirt);
-                    Console.WriteLine($"[Pickaxe] Broke stone at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[Pickaxe] Broke stone at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else
                 {
-                    Console.WriteLine($"[Pickaxe] Can't break this tile (ID: {currentTile.Id})");
+                    Debug.WriteLine($"[Pickaxe] Can't break this tile (ID: {currentTile.Id})");
                 }
                 break;
 
@@ -198,26 +199,26 @@ public class WorldManager
                 if (currentTile.Id == Tile.Tilled.Id || currentTile.Id == Tile.Dirt.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.WetDirt);
-                    Console.WriteLine($"[{tool.Name}] Watered soil at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[{tool.Name}] Watered soil at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else
                 {
-                    Console.WriteLine($"[{tool.Name}] Can't water this tile (ID: {currentTile.Id})");
+                    Debug.WriteLine($"[{tool.Name}] Can't water this tile (ID: {currentTile.Id})");
                 }
                 break;
 
             case "axe":
                 // Axe: (future - chop trees/stumps)
-                Console.WriteLine($"[Axe] Nothing to chop at ({tileCoords.X}, {tileCoords.Y})");
+                Debug.WriteLine($"[Axe] Nothing to chop at ({tileCoords.X}, {tileCoords.Y})");
                 break;
 
             case "scythe":
                 // Scythe: (future - harvest crops)
-                Console.WriteLine($"[Scythe] Nothing to harvest at ({tileCoords.X}, {tileCoords.Y})");
+                Debug.WriteLine($"[Scythe] Nothing to harvest at ({tileCoords.X}, {tileCoords.Y})");
                 break;
 
             default:
-                Console.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
+                Debug.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
                 break;
         }
     }
@@ -416,19 +417,19 @@ public class WorldManager
 
     public void Save()
     {
-        Console.WriteLine("[WorldManager] Saving game...");
+        Debug.WriteLine("[WorldManager] Saving game...");
         var data = CreateSaveData();
         SaveManager.Save(DebugSaveFile, data);
     }
 
     public void Load()
     {
-        Console.WriteLine("[WorldManager] Loading game...");
+        Debug.WriteLine("[WorldManager] Loading game...");
         var data = SaveManager.Load(DebugSaveFile);
         if (data != null)
         {
             ApplySaveData(data);
-            Console.WriteLine($"[WorldManager] Restored player at ({data.PlayerPositionX}, {data.PlayerPositionY})");
+            Debug.WriteLine($"[WorldManager] Restored player at ({data.PlayerPositionX}, {data.PlayerPositionY})");
         }
     }
 
