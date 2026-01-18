@@ -27,8 +27,15 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **Camera2D.cs**: 2D camera with dynamic viewport support for window resizing
 
 ### Player & Animation
-- **Player.cs**: Player entity with WASD movement and sprite animation
+- **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position
 - **SpriteAnimator.cs**: Handles spritesheet animation with direction-based rows (Down, Up, Left, Right)
+
+### World Objects & Rendering
+- **WorldObject.cs**: Physical objects (rocks, trees, bushes, mana nodes) with collision
+- **IRenderable.cs**: Interface for Y-sortable entities (Player, WorldObject)
+- All sprites use **bottom-center origin** (Position = feet location)
+- **Feet-only collision**: Collision boxes cover ~20% of sprite height for 2.5D overlap
+- **Y-sorting**: Entities sorted by `SortY` (feet Y position) for correct depth ordering
 
 ### Item System (Polymorphic)
 - **Item.cs**: Abstract base class with `[JsonPolymorphic]` for serialization
@@ -66,7 +73,29 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 public abstract class Item { ... }
 ```
 
-### World Persistence (v2)
+### Bottom-Center Pivot System (v2.2)
+All sprites use bottom-center origin for proper 2.5D depth:
+```csharp
+// Position represents feet (bottom-center of sprite)
+public Vector2 Position { get; set; }
+
+// Collision box covers only feet area (~20% of height)
+public Rectangle CollisionBounds => new Rectangle(
+    (int)(Position.X - Width * 0.35f),
+    (int)(Position.Y - Height / 5),
+    (int)(Width * 0.7f),
+    Height / 5
+);
+
+// Y-sorting uses feet position directly
+public float SortY => Position.Y;
+
+// Draw with bottom-center origin
+var origin = new Vector2(Width / 2f, Height);
+spriteBatch.Draw(texture, Position, sourceRect, color, 0f, origin, scale, SpriteEffects.None, 0f);
+```
+
+### World Persistence (v2.0)
 - `GameLocation.CreateTestMap(seed)` generates deterministic maps from seed
 - `WorldManager.GetModifiedTiles()` compares current map vs freshly generated default
 - Only tiles that differ from default are saved (delta compression)
@@ -85,3 +114,4 @@ public abstract class Item { ... }
 |-----|--------|
 | K | Save game to `debug_save.json` |
 | L | Load game from `debug_save.json` |
+| F3 | Toggle collision box visualization (red borders) |

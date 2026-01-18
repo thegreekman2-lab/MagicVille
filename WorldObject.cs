@@ -8,13 +8,14 @@ namespace MagicVille;
 /// <summary>
 /// Represents a physical object in the world (rocks, trees, fences, etc.).
 /// Objects have collision and are Y-sorted for proper 2.5D depth rendering.
+/// Position uses BOTTOM-CENTER pivot (feet position).
 /// </summary>
 public class WorldObject : IRenderable
 {
     /// <summary>Unique identifier for this object instance.</summary>
     public Guid Id { get; init; } = Guid.NewGuid();
 
-    /// <summary>World position (top-left of the visual sprite).</summary>
+    /// <summary>World position (BOTTOM-CENTER / feet of the sprite).</summary>
     public Vector2 Position { get; set; }
 
     /// <summary>Visual width in pixels.</summary>
@@ -29,37 +30,32 @@ public class WorldObject : IRenderable
     /// <summary>Whether this object blocks movement.</summary>
     public bool IsCollidable { get; init; } = true;
 
-    /// <summary>Height of the collision box at the base (feet) of the object.</summary>
-    public int CollisionHeight { get; init; } = 16;
-
     /// <summary>
     /// Bounding box for collision detection.
-    /// Covers only the "feet" or base of the object, not the full sprite.
-    /// This allows visual overlap for proper depth perception.
+    /// Covers only the "feet" or base of the object (~20% of height).
+    /// This allows visual overlap for proper 2.5D depth perception.
     /// </summary>
-    public Rectangle BoundingBox => new(
-        (int)Position.X,
-        (int)Position.Y + Height - CollisionHeight,
-        Width,
-        CollisionHeight
-    );
+    public Rectangle BoundingBox
+    {
+        get
+        {
+            int collisionHeight = Math.Max(8, Height / 5); // 20% of height
+            int collisionWidth = (int)(Width * 0.8f);      // 80% of width, centered
+            return new Rectangle(
+                (int)(Position.X - collisionWidth / 2f),
+                (int)(Position.Y - collisionHeight),
+                collisionWidth,
+                collisionHeight
+            );
+        }
+    }
 
     /// <summary>
     /// Y coordinate used for depth sorting.
-    /// Objects with higher SortY are drawn in front (later).
-    /// Uses the bottom of the bounding box for accurate sorting.
+    /// Since Position is at feet, we sort directly by Position.Y.
+    /// Objects with higher Y are drawn in front (later).
     /// </summary>
-    public float SortY => Position.Y + Height;
-
-    /// <summary>
-    /// Visual bounds for rendering the full sprite.
-    /// </summary>
-    public Rectangle DrawBounds => new(
-        (int)Position.X,
-        (int)Position.Y,
-        Width,
-        Height
-    );
+    public float SortY => Position.Y;
 
     /// <summary>Placeholder color for rendering (until we have sprites).</summary>
     public Color Color { get; init; } = Color.Gray;
@@ -74,26 +70,34 @@ public class WorldObject : IRenderable
         Height = height;
         Color = color;
         IsCollidable = isCollidable;
-        // Default collision height is 1/4 of visual height
-        CollisionHeight = Math.Max(8, height / 4);
     }
 
     /// <summary>
     /// Draw the object using a placeholder colored rectangle.
+    /// Uses BOTTOM-CENTER origin: Position is where the feet go.
     /// </summary>
     public void Draw(SpriteBatch spriteBatch, Texture2D pixel)
     {
-        // Draw main body
-        spriteBatch.Draw(pixel, DrawBounds, Color);
+        // Origin at bottom-center
+        var origin = new Vector2(Width / 2f, Height);
+
+        // Draw main body using origin-based positioning
+        var destRect = new Rectangle(0, 0, Width, Height);
+        spriteBatch.Draw(
+            pixel,
+            Position,
+            destRect,
+            Color,
+            0f,
+            origin,
+            1f,
+            SpriteEffects.None,
+            0f
+        );
 
         // Draw darker base/shadow at feet for visual clarity
-        var baseRect = new Rectangle(
-            (int)Position.X,
-            (int)Position.Y + Height - CollisionHeight,
-            Width,
-            CollisionHeight
-        );
-        spriteBatch.Draw(pixel, baseRect, new Color(0, 0, 0, 80));
+        var shadowBounds = BoundingBox;
+        spriteBatch.Draw(pixel, shadowBounds, new Color(0, 0, 0, 80));
     }
 
     #region Factory Methods
@@ -101,46 +105,31 @@ public class WorldObject : IRenderable
     /// <summary>Create a rock object.</summary>
     public static WorldObject CreateRock(Vector2 position)
     {
-        return new WorldObject("rock", position, 48, 40, new Color(100, 100, 110), true)
-        {
-            CollisionHeight = 12
-        };
+        return new WorldObject("rock", position, 48, 40, new Color(100, 100, 110), true);
     }
 
     /// <summary>Create a tree object.</summary>
     public static WorldObject CreateTree(Vector2 position)
     {
-        return new WorldObject("tree", position, 64, 96, new Color(34, 100, 34), true)
-        {
-            CollisionHeight = 16
-        };
+        return new WorldObject("tree", position, 64, 96, new Color(34, 100, 34), true);
     }
 
     /// <summary>Create a fence post.</summary>
     public static WorldObject CreateFence(Vector2 position)
     {
-        return new WorldObject("fence", position, 32, 48, new Color(139, 90, 43), true)
-        {
-            CollisionHeight = 8
-        };
+        return new WorldObject("fence", position, 32, 48, new Color(139, 90, 43), true);
     }
 
     /// <summary>Create a bush (decorative, smaller collision).</summary>
     public static WorldObject CreateBush(Vector2 position)
     {
-        return new WorldObject("bush", position, 40, 32, new Color(50, 130, 50), true)
-        {
-            CollisionHeight = 10
-        };
+        return new WorldObject("bush", position, 40, 32, new Color(50, 130, 50), true);
     }
 
     /// <summary>Create a mana node (blue glowing rock, harvestable for mana).</summary>
     public static WorldObject CreateManaNode(Vector2 position)
     {
-        return new WorldObject("mana_node", position, 40, 48, new Color(80, 150, 255), true)
-        {
-            CollisionHeight = 12
-        };
+        return new WorldObject("mana_node", position, 40, 48, new Color(80, 150, 255), true);
     }
 
     #endregion

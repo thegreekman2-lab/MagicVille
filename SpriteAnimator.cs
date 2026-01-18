@@ -97,9 +97,10 @@ public class SpriteAnimator
 
     /// <summary>
     /// Draw the current animation frame at the specified position.
+    /// Uses BOTTOM-CENTER origin: Position represents the feet/base of the sprite.
     /// </summary>
     /// <param name="spriteBatch">SpriteBatch (must be inside Begin/End)</param>
-    /// <param name="position">Center position in world coordinates</param>
+    /// <param name="position">Feet position in world coordinates (bottom-center of sprite)</param>
     /// <param name="drawWidth">Destination width</param>
     /// <param name="drawHeight">Destination height</param>
     public void Draw(SpriteBatch spriteBatch, Vector2 position, int drawWidth, int drawHeight)
@@ -117,14 +118,26 @@ public class SpriteAnimator
             _frameHeight
         );
 
-        var destRect = new Rectangle(
-            (int)(position.X - drawWidth / 2f),
-            (int)(position.Y - drawHeight / 2f),
-            drawWidth,
-            drawHeight
+        // Origin at bottom-center of the source frame
+        var origin = new Vector2(_frameWidth / 2f, _frameHeight);
+
+        // Scale to match desired draw size
+        var scale = new Vector2(
+            drawWidth / (float)_frameWidth,
+            drawHeight / (float)_frameHeight
         );
 
-        spriteBatch.Draw(_spritesheet, destRect, sourceRect, Color.White);
+        spriteBatch.Draw(
+            _spritesheet,
+            position,           // Position = where the origin (feet) goes
+            sourceRect,
+            Color.White,
+            0f,                 // No rotation
+            origin,             // Bottom-center origin
+            scale,
+            SpriteEffects.None,
+            0f
+        );
     }
 
     /// <summary>

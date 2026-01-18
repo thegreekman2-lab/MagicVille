@@ -8,7 +8,7 @@ namespace MagicVille;
 
 public class Player : IRenderable
 {
-    // Position in world coordinates (pixels, not tiles)
+    // Position in world coordinates (BOTTOM-CENTER / feet position)
     public Vector2 Position { get; set; }
 
     // Player name
@@ -20,10 +20,6 @@ public class Player : IRenderable
     // Visual size (slightly smaller than a tile)
     public const int Width = 48;
     public const int Height = 48;
-
-    // Collision box dimensions (smaller, at feet)
-    public const int CollisionWidth = 32;
-    public const int CollisionHeight = 16;
 
     // Current facing direction
     public Direction Facing { get; private set; } = Direction.Down;
@@ -145,61 +141,83 @@ public class Player : IRenderable
     {
         if (_animator != null)
         {
+            // SpriteAnimator uses bottom-center origin automatically
             _animator.Draw(spriteBatch, Position, Width, Height);
         }
         else
         {
-            // Fallback to colored rectangle if no spritesheet set
-            var drawRect = new Rectangle(
-                (int)(Position.X - Width / 2f),
-                (int)(Position.Y - Height / 2f),
-                Width,
-                Height
+            // Fallback: draw using bottom-center origin
+            var origin = new Vector2(Width / 2f, Height);
+            var destRect = new Rectangle(0, 0, Width, Height);
+            spriteBatch.Draw(
+                fallbackPixel,
+                Position,
+                destRect,
+                new Color(65, 105, 225),
+                0f,
+                origin,
+                1f,
+                SpriteEffects.None,
+                0f
             );
-            spriteBatch.Draw(fallbackPixel, drawRect, new Color(65, 105, 225));
         }
     }
 
     /// <summary>
     /// Get the center position (useful for camera targeting).
+    /// Since Position is at feet, center is half-height above.
     /// </summary>
-    public Vector2 Center => Position;
+    public Vector2 Center => new(Position.X, Position.Y - Height / 2f);
 
     /// <summary>
     /// Get the bounding rectangle for visual bounds.
     /// </summary>
     public Rectangle Bounds => new(
         (int)(Position.X - Width / 2f),
-        (int)(Position.Y - Height / 2f),
+        (int)(Position.Y - Height),
         Width,
         Height
     );
 
     /// <summary>
-    /// Get the collision bounding box (smaller, at feet).
+    /// Get the collision bounding box (feet-only, ~20% of height).
     /// Used for collision detection with world objects.
+    /// Covers only the base/shadow area for proper 2.5D depth.
     /// </summary>
-    public Rectangle CollisionBounds => new(
-        (int)(Position.X - CollisionWidth / 2f),
-        (int)(Position.Y + Height / 2f - CollisionHeight),
-        CollisionWidth,
-        CollisionHeight
-    );
+    public Rectangle CollisionBounds
+    {
+        get
+        {
+            int collisionHeight = Height / 5;  // 20% of height
+            int collisionWidth = (int)(Width * 0.7f); // 70% of width
+            return new Rectangle(
+                (int)(Position.X - collisionWidth / 2f),
+                (int)(Position.Y - collisionHeight),
+                collisionWidth,
+                collisionHeight
+            );
+        }
+    }
 
     /// <summary>
     /// Get collision bounds at a hypothetical position.
     /// Used to check collisions before moving.
     /// </summary>
-    public Rectangle GetCollisionBoundsAt(Vector2 position) => new(
-        (int)(position.X - CollisionWidth / 2f),
-        (int)(position.Y + Height / 2f - CollisionHeight),
-        CollisionWidth,
-        CollisionHeight
-    );
+    public Rectangle GetCollisionBoundsAt(Vector2 position)
+    {
+        int collisionHeight = Height / 5;
+        int collisionWidth = (int)(Width * 0.7f);
+        return new Rectangle(
+            (int)(position.X - collisionWidth / 2f),
+            (int)(position.Y - collisionHeight),
+            collisionWidth,
+            collisionHeight
+        );
+    }
 
     /// <summary>
     /// Y coordinate used for depth sorting.
-    /// Uses the bottom of the player's feet for accurate Y-sorting.
+    /// Since Position is at feet, we use it directly.
     /// </summary>
-    public float SortY => Position.Y + Height / 2f;
+    public float SortY => Position.Y;
 }

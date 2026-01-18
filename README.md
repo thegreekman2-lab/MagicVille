@@ -60,6 +60,7 @@ dotnet run        # Run the game
 | Left Click | Use selected tool on tile |
 | K | Save game |
 | L | Load game |
+| F3 | Toggle collision debug visualization |
 
 ## Project Structure
 
@@ -78,6 +79,8 @@ MagicVille/
 ├── Tool.cs             # Tool items (Hoe, Axe, Pickaxe, etc.)
 ├── Material.cs         # Stackable material items (Wood, Stone, etc.)
 ├── SpriteAnimator.cs   # Sprite animation with direction rows
+├── WorldObject.cs      # World objects (rocks, trees) with collision
+├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
 ├── TileSaveData.cs     # Serializable modified tile data
 ├── SaveManager.cs      # JSON save/load with polymorphic support
@@ -114,7 +117,20 @@ MagicVille/
 
 ## Version History
 
-### v2 - World Persistence (Current)
+### v2.2 - Bottom-Center Pivot System (Current)
+- **Rendering refactor**: All sprites use bottom-center origin (Position = feet)
+- **Feet-only collision**: Collision boxes cover ~20% height at base for proper 2.5D overlap
+- **Y-sorting**: Objects sorted by feet position (Position.Y) for correct depth
+- **F3 debug toggle**: Visualize collision rectangles with red borders
+
+### v2.1 - Object Layer & Collision
+- WorldObject class (rocks, trees, bushes, mana nodes)
+- IRenderable interface for Y-sorted depth rendering
+- Collision detection with slide movement
+- Object interaction priority (objects checked before tiles)
+- Seeded object spawning for reproducible placement
+
+### v2.0 - World Persistence
 - **Bug fix**: Map tiles now properly save and load
 - Seeded map generation for deterministic world recreation
 - TileSaveData stores only modified tiles (delta compression)
@@ -138,7 +154,6 @@ MagicVille/
 
 ## What's NOT Built Yet (Future Versions)
 
-- Tile collision
 - Crops and farming cycle
 - NPCs and dialogue
 - Time/day cycle

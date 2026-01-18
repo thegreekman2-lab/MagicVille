@@ -31,6 +31,9 @@ public class WorldManager
     private Point _targetTile;
     private bool _targetInRange;
 
+    // Debug visualization (F3 toggle)
+    public bool ShowDebug { get; private set; }
+
     // Graphics resources (initialized in Initialize())
     private Texture2D _pixel = null!;
     private Texture2D _playerSpritesheet = null!;
@@ -158,6 +161,13 @@ public class WorldManager
         if (Input.IsKeyPressed(Keys.L))
         {
             Load();
+        }
+
+        // F3: Toggle debug collision visualization
+        if (Input.IsKeyPressed(Keys.F3))
+        {
+            ShowDebug = !ShowDebug;
+            Debug.WriteLine($"[Debug] Collision visualization: {(ShowDebug ? "ON" : "OFF")}");
         }
 
         // Update player movement with collision checking
@@ -514,6 +524,48 @@ public class WorldManager
         {
             renderable.Draw(spriteBatch, _pixel);
         }
+
+        // Draw debug collision boxes if enabled
+        if (ShowDebug)
+        {
+            DrawDebugCollisions(spriteBatch);
+        }
+    }
+
+    /// <summary>
+    /// Draw 1px red borders around collision rectangles for debugging.
+    /// Shows Player.CollisionBounds and all WorldObject.BoundingBox.
+    /// </summary>
+    private void DrawDebugCollisions(SpriteBatch spriteBatch)
+    {
+        Color debugColor = Color.Red;
+
+        // Draw player collision bounds
+        DrawRectBorder(spriteBatch, Player.CollisionBounds, debugColor);
+
+        // Draw world object bounding boxes
+        foreach (var obj in Objects)
+        {
+            if (obj.IsCollidable)
+            {
+                DrawRectBorder(spriteBatch, obj.BoundingBox, debugColor);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Draw a 1px border around a rectangle.
+    /// </summary>
+    private void DrawRectBorder(SpriteBatch spriteBatch, Rectangle rect, Color color)
+    {
+        // Top
+        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), color);
+        // Bottom
+        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), color);
+        // Left
+        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
+        // Right
+        spriteBatch.Draw(_pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
     }
 
     /// <summary>
