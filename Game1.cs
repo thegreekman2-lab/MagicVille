@@ -6,8 +6,9 @@ namespace MagicVille;
 public class Game1 : Game
 {
     private GraphicsDeviceManager _graphics;
-    private SpriteBatch _spriteBatch;
-    private WorldManager _world;
+    private SpriteBatch _spriteBatch = null!;
+    private WorldManager _world = null!;
+    private Texture2D _pixel = null!;
 
     public Game1()
     {
@@ -52,6 +53,9 @@ public class Game1 : Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         _world.Initialize(GraphicsDevice);
+
+        // Get pixel texture for overlays
+        _pixel = _world.GetPixelTexture();
     }
 
     protected override void Update(GameTime gameTime)
@@ -63,7 +67,42 @@ public class Game1 : Game
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(Color.Black);
-        _world.Draw(_spriteBatch);
+
+        // === LAYER 1: World (tiles, objects, player) ===
+        _world.DrawWorld(_spriteBatch);
+
+        // === LAYER 2: Night Overlay (day/night atmosphere) ===
+        DrawNightOverlay();
+
+        // === LAYER 3: UI (clock, hotbar - not affected by night filter) ===
+        _world.DrawUI(_spriteBatch);
+
         base.Draw(gameTime);
+    }
+
+    /// <summary>
+    /// Draw the day/night atmosphere overlay.
+    /// Covers the world layer but not the UI.
+    /// </summary>
+    private void DrawNightOverlay()
+    {
+        Color overlayColor = TimeManager.GetNightOverlayColor();
+
+        // Skip if fully transparent (daytime)
+        if (overlayColor.A == 0)
+            return;
+
+        _spriteBatch.Begin(
+            sortMode: SpriteSortMode.Deferred,
+            blendState: BlendState.AlphaBlend,
+            samplerState: SamplerState.PointClamp
+        );
+
+        // Draw full-screen overlay
+        var viewport = GraphicsDevice.Viewport;
+        var screenRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+        _spriteBatch.Draw(_pixel, screenRect, overlayColor);
+
+        _spriteBatch.End();
     }
 }

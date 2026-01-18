@@ -61,6 +61,8 @@ dotnet run        # Run the game
 | K | Save game |
 | L | Load game |
 | F3 | Toggle collision debug visualization |
+| T | Fast forward time by 1 hour |
+| P | Pause/unpause time |
 
 ## Project Structure
 
@@ -79,6 +81,7 @@ MagicVille/
 ├── Tool.cs             # Tool items (Hoe, Axe, Pickaxe, etc.)
 ├── Material.cs         # Stackable material items (Wood, Stone, etc.)
 ├── SpriteAnimator.cs   # Sprite animation with direction rows
+├── TimeManager.cs      # Global time system and day/night cycle
 ├── WorldObject.cs      # World objects (rocks, trees) with collision
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
@@ -117,7 +120,17 @@ MagicVille/
 
 ## Version History
 
-### v2.2 - Bottom-Center Pivot System (Current)
+### v2.3 - Time System & Day/Night Cycle (Current)
+- **TimeManager**: Global time system (7 real seconds = 10 in-game minutes)
+- **Day/Night cycle**: Visual atmosphere with sunset/dusk/night overlays
+- **Clock UI**: Pixel-rendered clock showing "Day X - HH:MM AM/PM"
+- **Map boundaries**: Player clamped to map edges (no walking into void)
+- **Time math fix**: Proper minute rollover (no more 65-minute hours)
+- **Debug keys**: T = advance 1 hour, P = pause/unpause time
+
+> **Note**: Sunset colors are placeholder and need artistic tuning. v3 will implement a RenderTarget-based lighting system for proper color grading and dynamic lights.
+
+### v2.2 - Bottom-Center Pivot System
 - **Rendering refactor**: All sprites use bottom-center origin (Position = feet)
 - **Feet-only collision**: Collision boxes cover ~20% height at base for proper 2.5D overlap
 - **Y-sorting**: Objects sorted by feet position (Position.Y) for correct depth
@@ -156,9 +169,9 @@ MagicVille/
 
 - Crops and farming cycle
 - NPCs and dialogue
-- Time/day cycle
 - Multiple locations
 - Sound effects and music
+- RenderTarget-based lighting (v3)
 
 ## License
 

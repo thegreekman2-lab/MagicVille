@@ -52,6 +52,15 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **TileSaveData.cs**: DTO for modified tile positions and IDs
 - **SaveManager.cs**: JSON save/load with polymorphic Item support
 
+### Time System (v2.3)
+- **TimeManager.cs**: Static class managing global game time
+- Time format: Military (0600 = 6 AM, 2400 = Midnight, 2600 = 2 AM end of day)
+- Tick rate: 7 real seconds = 10 in-game minutes
+- `OnTenMinutesPassed` event for crop growth / machine processing
+- Day/night overlay colors via `GetNightOverlayColor()`
+
+> **TODO**: Sunset colors need artistic tuning. v3 will use RenderTarget-based lighting for proper color grading.
+
 ## Key Patterns
 
 ### Tool Interaction Flow
@@ -106,7 +115,10 @@ spriteBatch.Draw(texture, Position, sourceRect, color, 0f, origin, scale, Sprite
 - Default window: 800x480 pixels (resizable)
 - Tile size: 64x64 pixels
 - Uses `SpriteBatch` with `SamplerState.PointClamp` for crisp pixel art
-- Two render passes: world (with camera transform) and UI (screen space)
+- Three render passes (UI Sandwich):
+  1. World (with camera transform)
+  2. Night overlay (screen space, alpha blend)
+  3. UI (screen space, unaffected by night filter)
 
 ## Debug Controls
 
@@ -115,3 +127,5 @@ spriteBatch.Draw(texture, Position, sourceRect, color, 0f, origin, scale, Sprite
 | K | Save game to `debug_save.json` |
 | L | Load game from `debug_save.json` |
 | F3 | Toggle collision box visualization (red borders) |
+| T | Fast forward time by 1 hour |
+| P | Pause/unpause time |

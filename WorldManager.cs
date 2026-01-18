@@ -170,8 +170,28 @@ public class WorldManager
             Debug.WriteLine($"[Debug] Collision visualization: {(ShowDebug ? "ON" : "OFF")}");
         }
 
+        // T: Fast forward time by 1 hour
+        if (Input.IsKeyPressed(Keys.T))
+        {
+            TimeManager.AdvanceHour();
+            Debug.WriteLine($"[Time] Advanced to {TimeManager.GetFormattedTime()}");
+        }
+
+        // P: Pause/Unpause time
+        if (Input.IsKeyPressed(Keys.P))
+        {
+            TimeManager.IsPaused = !TimeManager.IsPaused;
+            Debug.WriteLine($"[Time] {(TimeManager.IsPaused ? "PAUSED" : "RESUMED")}");
+        }
+
+        // Update global time
+        float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        TimeManager.Update(deltaTime);
+
         // Update player movement with collision checking
-        Player.Update(gameTime, Input.GetKeyboardState(), CanMove);
+        int mapPixelWidth = CurrentLocation.Width * GameLocation.TileSize;
+        int mapPixelHeight = CurrentLocation.Height * GameLocation.TileSize;
+        Player.Update(gameTime, Input.GetKeyboardState(), CanMove, mapPixelWidth, mapPixelHeight);
 
         // Update inventory (slot selection via scroll/number keys)
         Player.Inventory.Update(Input.GetKeyboardState(), Input.GetMouseState());
@@ -465,9 +485,17 @@ public class WorldManager
 
     #region Drawing
 
-    public void Draw(SpriteBatch spriteBatch)
+    /// <summary>
+    /// Get the pixel texture for external rendering (overlays, etc.).
+    /// </summary>
+    public Texture2D GetPixelTexture() => _pixel;
+
+    /// <summary>
+    /// Draw world layer (tiles, objects, player) with camera transform.
+    /// Call this first in the render pipeline.
+    /// </summary>
+    public void DrawWorld(SpriteBatch spriteBatch)
     {
-        // === World rendering (camera transform) ===
         spriteBatch.Begin(
             sortMode: SpriteSortMode.Deferred,
             blendState: BlendState.AlphaBlend,
@@ -485,8 +513,14 @@ public class WorldManager
         DrawSorted(spriteBatch);
 
         spriteBatch.End();
+    }
 
-        // === UI rendering (screen space, no transform) ===
+    /// <summary>
+    /// Draw UI layer (hotbar, clock) in screen space.
+    /// Call this last in the render pipeline, after any overlays.
+    /// </summary>
+    public void DrawUI(SpriteBatch spriteBatch)
+    {
         spriteBatch.Begin(
             sortMode: SpriteSortMode.Deferred,
             blendState: BlendState.AlphaBlend,
@@ -494,8 +528,18 @@ public class WorldManager
         );
 
         DrawHotbar(spriteBatch);
+        DrawClock(spriteBatch);
 
         spriteBatch.End();
+    }
+
+    /// <summary>
+    /// Legacy combined draw method. Use DrawWorld + DrawUI for proper layering.
+    /// </summary>
+    public void Draw(SpriteBatch spriteBatch)
+    {
+        DrawWorld(spriteBatch);
+        DrawUI(spriteBatch);
     }
 
     /// <summary>
@@ -669,6 +713,131 @@ public class WorldManager
             var numRect = new Rectangle(x + SlotSize - 12, startY + 2, 10, 10);
             Color numColor = isSelected ? Color.Black : new Color(150, 150, 150);
             spriteBatch.Draw(_pixel, numRect, numColor);
+        }
+    }
+
+    /// <summary>
+    /// Draw the clock UI in the top-right corner.
+    /// Shows "Day X" and time with AM/PM indicator.
+    /// </summary>
+    private void DrawClock(SpriteBatch spriteBatch)
+    {
+        var viewport = _graphicsDevice.Viewport;
+
+        // Clock box dimensions
+        const int boxWidth = 140;
+        const int boxHeight = 50;
+        const int margin = 10;
+
+        int boxX = viewport.Width - boxWidth - margin;
+        int boxY = margin;
+
+        // Draw clock background
+        var boxRect = new Rectangle(boxX, boxY, boxWidth, boxHeight);
+        spriteBatch.Draw(_pixel, boxRect, new Color(40, 40, 40, 200));
+
+        // Draw border
+        DrawRectBorder(spriteBatch, boxRect, new Color(100, 100, 100));
+
+        // Get time components
+        int timeOfDay = TimeManager.TimeOfDay;
+        int hours = timeOfDay / 100;
+        int minutes = timeOfDay % 100;
+
+        // Handle times past midnight (2400+)
+        if (hours >= 24)
+            hours -= 24;
+
+        // Convert to 12-hour format
+        bool isPM = hours >= 12;
+        int displayHour = hours % 12;
+        if (displayHour == 0)
+            displayHour = 12;
+
+        // Draw day indicator (left side)
+        int dayX = boxX + 8;
+        int dayY = boxY + 8;
+        DrawPixelText(spriteBatch, $"Day {TimeManager.Day}", dayX, dayY, Color.White);
+
+        // Draw time (bottom, larger)
+        int timeX = boxX + 8;
+        int timeY = boxY + 26;
+        string timeStr = $"{displayHour}:{minutes:D2}";
+        DrawPixelText(spriteBatch, timeStr, timeX, timeY, Color.White);
+
+        // Draw AM/PM indicator
+        int ampmX = boxX + 70;
+        int ampmY = boxY + 26;
+        Color ampmColor = isPM ? new Color(255, 200, 100) : new Color(150, 200, 255);
+        DrawPixelText(spriteBatch, isPM ? "PM" : "AM", ampmX, ampmY, ampmColor);
+
+        // Draw pause indicator if paused
+        if (TimeManager.IsPaused)
+        {
+            int pauseX = boxX + boxWidth - 30;
+            int pauseY = boxY + 8;
+            spriteBatch.Draw(_pixel, new Rectangle(pauseX, pauseY, 4, 12), Color.Red);
+            spriteBatch.Draw(_pixel, new Rectangle(pauseX + 7, pauseY, 4, 12), Color.Red);
+        }
+    }
+
+    /// <summary>
+    /// Simple pixel-based text rendering for digits and basic characters.
+    /// Each character is 5x7 pixels with 1px spacing.
+    /// </summary>
+    private void DrawPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color)
+    {
+        int cursorX = x;
+        const int charWidth = 5;
+        const int spacing = 1;
+
+        foreach (char c in text)
+        {
+            DrawPixelChar(spriteBatch, c, cursorX, y, color);
+            cursorX += charWidth + spacing;
+        }
+    }
+
+    /// <summary>
+    /// Draw a single character using pixel patterns.
+    /// Supports 0-9, A-Z, colon, and space.
+    /// </summary>
+    private void DrawPixelChar(SpriteBatch spriteBatch, char c, int x, int y, Color color)
+    {
+        // 5x7 pixel patterns for characters (1 = filled, 0 = empty)
+        // Each string is a row, 5 chars wide, 7 rows
+        string[] pattern = c switch
+        {
+            '0' => new[] { " ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### " },
+            '1' => new[] { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
+            '2' => new[] { " ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####" },
+            '3' => new[] { " ### ", "#   #", "    #", "  ## ", "    #", "#   #", " ### " },
+            '4' => new[] { "   # ", "  ## ", " # # ", "#  # ", "#####", "   # ", "   # " },
+            '5' => new[] { "#####", "#    ", "#### ", "    #", "    #", "#   #", " ### " },
+            '6' => new[] { " ### ", "#    ", "#### ", "#   #", "#   #", "#   #", " ### " },
+            '7' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   " },
+            '8' => new[] { " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### " },
+            '9' => new[] { " ### ", "#   #", "#   #", " ####", "    #", "   # ", " ##  " },
+            ':' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     " },
+            ' ' => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " },
+            'D' => new[] { "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### " },
+            'a' => new[] { "     ", "     ", " ### ", "    #", " ####", "#   #", " ####" },
+            'y' => new[] { "     ", "     ", "#   #", "#   #", " ####", "    #", " ### " },
+            'A' => new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
+            'M' => new[] { "#   #", "## ##", "# # #", "#   #", "#   #", "#   #", "#   #" },
+            'P' => new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " },
+            _ => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " }
+        };
+
+        for (int row = 0; row < 7; row++)
+        {
+            for (int col = 0; col < 5; col++)
+            {
+                if (col < pattern[row].Length && pattern[row][col] == '#')
+                {
+                    spriteBatch.Draw(_pixel, new Rectangle(x + col, y + row, 1, 1), color);
+                }
+            }
         }
     }
 

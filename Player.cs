@@ -54,7 +54,7 @@ public class Player : IRenderable
         _animator.PlayAnimation("Idle");
     }
 
-    public void Update(GameTime gameTime, KeyboardState keyboard, Func<Rectangle, bool>? canMove = null)
+    public void Update(GameTime gameTime, KeyboardState keyboard, Func<Rectangle, bool>? canMove = null, int mapWidth = 0, int mapHeight = 0)
     {
         float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
         Vector2 movement = Vector2.Zero;
@@ -109,6 +109,19 @@ public class Player : IRenderable
                         }
                     }
                 }
+            }
+
+            // Clamp to map boundaries (prevent walking into the void)
+            // Position is BOTTOM-CENTER (feet), so account for sprite dimensions
+            if (mapWidth > 0 && mapHeight > 0)
+            {
+                float minX = Width / 2f;
+                float maxX = mapWidth - Width / 2f;
+                float minY = Height;
+                float maxY = mapHeight;
+
+                newPosition.X = Math.Clamp(newPosition.X, minX, maxX);
+                newPosition.Y = Math.Clamp(newPosition.Y, minY, maxY);
             }
 
             Position = newPosition;
