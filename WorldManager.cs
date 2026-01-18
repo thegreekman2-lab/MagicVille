@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -61,8 +62,8 @@ public class WorldManager
         // Generate world seed
         WorldSeed = Environment.TickCount;
 
-        // Load test map
-        CurrentLocation = GameLocation.CreateTestMap();
+        // Load test map with seed for reproducible generation
+        CurrentLocation = GameLocation.CreateTestMap(WorldSeed);
 
         // Spawn player at tile (7, 7) - away from water and stone
         var startPosition = new Vector2(
@@ -391,6 +392,36 @@ public class WorldManager
 
     #region Save/Load
 
+    /// <summary>
+    /// Get all tiles that differ from the default generated map.
+    /// Compares current state against a freshly generated map with same seed.
+    /// </summary>
+    private List<TileSaveData> GetModifiedTiles()
+    {
+        var modifiedTiles = new List<TileSaveData>();
+
+        // Generate a fresh "default" map with the same seed
+        var defaultMap = GameLocation.CreateTestMap(WorldSeed);
+
+        // Compare every tile
+        for (int y = 0; y < CurrentLocation.Height; y++)
+        {
+            for (int x = 0; x < CurrentLocation.Width; x++)
+            {
+                var currentTile = CurrentLocation.GetTile(x, y);
+                var defaultTile = defaultMap.GetTile(x, y);
+
+                // If tile differs from default, save it
+                if (currentTile.Id != defaultTile.Id)
+                {
+                    modifiedTiles.Add(new TileSaveData(x, y, currentTile.Id));
+                }
+            }
+        }
+
+        return modifiedTiles;
+    }
+
     public SaveData CreateSaveData()
     {
         return new SaveData
@@ -401,25 +432,56 @@ public class WorldManager
             CurrentLocationName = CurrentLocationName,
             WorldSeed = WorldSeed,
             InventorySlots = Player.Inventory.ToSaveList(),
-            ActiveHotbarSlot = Player.Inventory.ActiveSlotIndex
+            ActiveHotbarSlot = Player.Inventory.ActiveSlotIndex,
+            ModifiedTiles = GetModifiedTiles()
         };
     }
 
     public void ApplySaveData(SaveData data)
     {
-        Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
-        Player.Name = data.PlayerName;
+        // Update world metadata
         CurrentLocationName = data.CurrentLocationName;
         WorldSeed = data.WorldSeed;
+
+        // STEP 1: Reset map to default state using saved seed
+        CurrentLocation = GameLocation.CreateTestMap(WorldSeed);
+        Debug.WriteLine($"[WorldManager] Map reset to default (seed: {WorldSeed})");
+
+        // STEP 2: Apply modified tiles from save data
+        foreach (var tileSave in data.ModifiedTiles)
+        {
+            var tile = GetTileById(tileSave.TileId);
+            CurrentLocation.SetTile(tileSave.X, tileSave.Y, tile);
+        }
+        Debug.WriteLine($"[WorldManager] Applied {data.ModifiedTiles.Count} modified tiles");
+
+        // Restore player state
+        Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
+        Player.Name = data.PlayerName;
         Player.Inventory.LoadFromSaveList(data.InventorySlots);
         Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
     }
+
+    /// <summary>
+    /// Get a Tile by its ID.
+    /// </summary>
+    private static Tile GetTileById(int id) => id switch
+    {
+        0 => Tile.Grass,
+        1 => Tile.Dirt,
+        2 => Tile.Water,
+        3 => Tile.Stone,
+        4 => Tile.WetDirt,
+        5 => Tile.Tilled,
+        _ => Tile.Grass // Default fallback
+    };
 
     public void Save()
     {
         Debug.WriteLine("[WorldManager] Saving game...");
         var data = CreateSaveData();
         SaveManager.Save(DebugSaveFile, data);
+        Debug.WriteLine($"[WorldManager] Saved {data.ModifiedTiles.Count} modified tiles");
     }
 
     public void Load()

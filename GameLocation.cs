@@ -66,14 +66,15 @@ public class GameLocation
 
     /// <summary>
     /// Creates a random test map sized for 1920x1080 (30x17 tiles).
+    /// Uses seed for deterministic generation (same seed = same map).
     /// </summary>
-    public static GameLocation CreateTestMap()
+    public static GameLocation CreateTestMap(int seed = 0)
     {
         // 1920x1080 at 64px tiles = 30x17
         int width = 30;
         int height = 17;
         var location = new GameLocation(width, height);
-        var random = new Random();
+        var random = seed == 0 ? new Random() : new Random(seed);
 
         // Fill with grass
         for (int y = 0; y < height; y++)

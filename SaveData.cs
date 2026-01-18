@@ -21,4 +21,7 @@ public class SaveData
     // Inventory - polymorphic list (Tool and Material subtypes preserved)
     public List<Item?> InventorySlots { get; set; } = new();
     public int ActiveHotbarSlot { get; set; } = 0;
+
+    // Map state - only stores tiles that differ from the default generated map
+    public List<TileSaveData> ModifiedTiles { get; set; } = new();
 }
