@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -81,35 +82,66 @@ public class WorldManager
     }
 
     /// <summary>
-    /// Spawn test objects for demonstrating Y-sorting.
+    /// Spawn world objects using seeded random generation.
+    /// Uses WorldSeed for reproducible placement.
     /// </summary>
     private void SpawnTestObjects()
     {
         Objects.Clear();
 
-        // Spawn trees scattered around the map
-        Objects.Add(WorldObject.CreateTree(new Vector2(3 * 64, 3 * 64)));
-        Objects.Add(WorldObject.CreateTree(new Vector2(5 * 64, 10 * 64)));
-        Objects.Add(WorldObject.CreateTree(new Vector2(20 * 64, 5 * 64)));
-        Objects.Add(WorldObject.CreateTree(new Vector2(22 * 64, 12 * 64)));
-        Objects.Add(WorldObject.CreateTree(new Vector2(10 * 64, 3 * 64)));
+        // Use world seed for reproducible object placement
+        var random = new Random(WorldSeed + 1); // +1 to differ from map generation
 
-        // Spawn rocks
-        Objects.Add(WorldObject.CreateRock(new Vector2(8 * 64, 5 * 64)));
-        Objects.Add(WorldObject.CreateRock(new Vector2(12 * 64, 8 * 64)));
-        Objects.Add(WorldObject.CreateRock(new Vector2(18 * 64, 10 * 64)));
-        Objects.Add(WorldObject.CreateRock(new Vector2(6 * 64, 12 * 64)));
+        int mapWidth = CurrentLocation.Width;
+        int mapHeight = CurrentLocation.Height;
 
-        // Spawn bushes
-        Objects.Add(WorldObject.CreateBush(new Vector2(4 * 64, 6 * 64)));
-        Objects.Add(WorldObject.CreateBush(new Vector2(15 * 64, 4 * 64)));
-        Objects.Add(WorldObject.CreateBush(new Vector2(25 * 64, 8 * 64)));
+        // Helper to get a valid spawn position (not on water, not too close to spawn)
+        Vector2 GetValidPosition()
+        {
+            for (int attempts = 0; attempts < 50; attempts++)
+            {
+                int tileX = random.Next(mapWidth);
+                int tileY = random.Next(mapHeight);
 
-        // Spawn a fence line
+                // Skip player spawn area (around 7,7)
+                if (Math.Abs(tileX - 7) < 3 && Math.Abs(tileY - 7) < 3)
+                    continue;
+
+                // Skip water tiles
+                var tile = CurrentLocation.GetTile(tileX, tileY);
+                if (tile.Id == Tile.Water.Id)
+                    continue;
+
+                return new Vector2(tileX * 64, tileY * 64);
+            }
+            return new Vector2(10 * 64, 10 * 64); // Fallback
+        }
+
+        // Spawn 5 rocks (breakable with pickaxe)
         for (int i = 0; i < 5; i++)
         {
-            Objects.Add(WorldObject.CreateFence(new Vector2((16 + i) * 64, 14 * 64)));
+            Objects.Add(WorldObject.CreateRock(GetValidPosition()));
         }
+
+        // Spawn 5 mana nodes (blue rocks, breakable with pickaxe)
+        for (int i = 0; i < 5; i++)
+        {
+            Objects.Add(WorldObject.CreateManaNode(GetValidPosition()));
+        }
+
+        // Spawn 4 trees
+        for (int i = 0; i < 4; i++)
+        {
+            Objects.Add(WorldObject.CreateTree(GetValidPosition()));
+        }
+
+        // Spawn 3 bushes
+        for (int i = 0; i < 3; i++)
+        {
+            Objects.Add(WorldObject.CreateBush(GetValidPosition()));
+        }
+
+        Debug.WriteLine($"[WorldManager] Spawned {Objects.Count} world objects (seed: {WorldSeed})");
     }
 
     public void Update(GameTime gameTime)
@@ -127,8 +159,8 @@ public class WorldManager
             Load();
         }
 
-        // Update player movement
-        Player.Update(gameTime, Input.GetKeyboardState());
+        // Update player movement with collision checking
+        Player.Update(gameTime, Input.GetKeyboardState(), CanMove);
 
         // Update inventory (slot selection via scroll/number keys)
         Player.Inventory.Update(Input.GetKeyboardState(), Input.GetMouseState());
@@ -145,6 +177,78 @@ public class WorldManager
             TryUseTool();
         }
     }
+
+    #region Collision Detection
+
+    /// <summary>
+    /// Check if a bounding box can move to a position without colliding.
+    /// Checks both tile walkability and world object collision.
+    /// </summary>
+    private bool CanMove(Rectangle bounds)
+    {
+        // Check tile collisions (all four corners of the bounding box)
+        if (!IsTileWalkable(bounds.Left, bounds.Top) ||
+            !IsTileWalkable(bounds.Right - 1, bounds.Top) ||
+            !IsTileWalkable(bounds.Left, bounds.Bottom - 1) ||
+            !IsTileWalkable(bounds.Right - 1, bounds.Bottom - 1))
+        {
+            return false;
+        }
+
+        // Check world object collisions
+        foreach (var obj in Objects)
+        {
+            if (obj.IsCollidable && bounds.Intersects(obj.BoundingBox))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Check if a world position is on a walkable tile.
+    /// </summary>
+    private bool IsTileWalkable(int worldX, int worldY)
+    {
+        int tileX = worldX / GameLocation.TileSize;
+        int tileY = worldY / GameLocation.TileSize;
+
+        // Out of bounds = not walkable
+        if (tileX < 0 || tileX >= CurrentLocation.Width ||
+            tileY < 0 || tileY >= CurrentLocation.Height)
+        {
+            return false;
+        }
+
+        return CurrentLocation.GetTile(tileX, tileY).Walkable;
+    }
+
+    /// <summary>
+    /// Get the world object at a specific tile coordinate, if any.
+    /// </summary>
+    private WorldObject? GetObjectAtTile(Point tileCoords)
+    {
+        var tileRect = new Rectangle(
+            tileCoords.X * GameLocation.TileSize,
+            tileCoords.Y * GameLocation.TileSize,
+            GameLocation.TileSize,
+            GameLocation.TileSize
+        );
+
+        foreach (var obj in Objects)
+        {
+            if (obj.BoundingBox.Intersects(tileRect))
+            {
+                return obj;
+            }
+        }
+
+        return null;
+    }
+
+    #endregion
 
     #region Targeting & Tool Interaction
 
@@ -191,9 +295,22 @@ public class WorldManager
 
     /// <summary>
     /// Apply tool effect to a tile based on tool type.
+    /// PRIORITY: Check for world objects first before tile interactions.
     /// </summary>
     private void InteractWithTile(Point tileCoords, Tool tool)
     {
+        // PRIORITY CHECK: Check for world object at this tile first
+        var targetObject = GetObjectAtTile(tileCoords);
+        if (targetObject != null)
+        {
+            // Handle object interaction based on tool and object type
+            if (InteractWithObject(targetObject, tool))
+            {
+                return; // Object handled the interaction, don't process tile
+            }
+        }
+
+        // No object interaction, proceed with tile logic
         var currentTile = CurrentLocation.GetTile(tileCoords.X, tileCoords.Y);
 
         switch (tool.RegistryKey)
@@ -218,15 +335,15 @@ public class WorldManager
                 break;
 
             case "pickaxe":
-                // Pickaxe: Stone → Dirt
+                // Pickaxe: Stone tile → Dirt
                 if (currentTile.Id == Tile.Stone.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Dirt);
-                    Debug.WriteLine($"[Pickaxe] Broke stone at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[Pickaxe] Broke stone tile at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else
                 {
-                    Debug.WriteLine($"[Pickaxe] Can't break this tile (ID: {currentTile.Id})");
+                    Debug.WriteLine($"[Pickaxe] Nothing to break at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 break;
 
@@ -257,6 +374,79 @@ public class WorldManager
             default:
                 Debug.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Handle interaction between a tool and a world object.
+    /// Returns true if the interaction was handled (object consumed the action).
+    /// </summary>
+    private bool InteractWithObject(WorldObject obj, Tool tool)
+    {
+        switch (obj.Name)
+        {
+            case "rock":
+                // Pickaxe destroys rocks
+                if (tool.RegistryKey == "pickaxe")
+                {
+                    Objects.Remove(obj);
+                    Debug.WriteLine($"[Pickaxe] Destroyed rock at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    // TODO: Drop stone material
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with rock");
+                return true; // Block other tools from affecting tile under rock
+
+            case "mana_node":
+                // Pickaxe destroys mana nodes
+                if (tool.RegistryKey == "pickaxe")
+                {
+                    Objects.Remove(obj);
+                    Debug.WriteLine($"[Pickaxe] Harvested mana node at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    // TODO: Give mana or mana crystal
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with mana node");
+                return true; // Block other tools
+
+            case "tree":
+                // Axe chops trees
+                if (tool.RegistryKey == "axe")
+                {
+                    Objects.Remove(obj);
+                    Debug.WriteLine($"[Axe] Chopped tree at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    // TODO: Drop wood material
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with tree");
+                return true; // Block other tools
+
+            case "bush":
+                // Scythe cuts bushes
+                if (tool.RegistryKey == "scythe")
+                {
+                    Objects.Remove(obj);
+                    Debug.WriteLine($"[Scythe] Cut bush at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    // TODO: Drop fiber
+                    return true;
+                }
+                // Other tools pass through bushes
+                return false;
+
+            case "fence":
+                // Axe breaks fences
+                if (tool.RegistryKey == "axe")
+                {
+                    Objects.Remove(obj);
+                    Debug.WriteLine($"[Axe] Broke fence at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with fence");
+                return true; // Block other tools
+
+            default:
+                // Unknown object type, don't block tile interaction
+                return false;
         }
     }
 
@@ -516,7 +706,10 @@ public class WorldManager
         CurrentLocation = GameLocation.CreateTestMap(WorldSeed);
         Debug.WriteLine($"[WorldManager] Map reset to default (seed: {WorldSeed})");
 
-        // STEP 2: Apply modified tiles from save data
+        // STEP 2: Respawn world objects using the same seed
+        SpawnTestObjects();
+
+        // STEP 3: Apply modified tiles from save data
         foreach (var tileSave in data.ModifiedTiles)
         {
             var tile = GetTileById(tileSave.TileId);

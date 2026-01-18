@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -19,6 +20,10 @@ public class Player : IRenderable
     // Visual size (slightly smaller than a tile)
     public const int Width = 48;
     public const int Height = 48;
+
+    // Collision box dimensions (smaller, at feet)
+    public const int CollisionWidth = 32;
+    public const int CollisionHeight = 16;
 
     // Current facing direction
     public Direction Facing { get; private set; } = Direction.Down;
@@ -53,7 +58,7 @@ public class Player : IRenderable
         _animator.PlayAnimation("Idle");
     }
 
-    public void Update(GameTime gameTime, KeyboardState keyboard)
+    public void Update(GameTime gameTime, KeyboardState keyboard, Func<Rectangle, bool>? canMove = null)
     {
         float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
         Vector2 movement = Vector2.Zero;
@@ -77,7 +82,40 @@ public class Player : IRenderable
             UpdateFacingDirection(movement);
 
             movement.Normalize();
-            Position += movement * Speed * deltaTime;
+            Vector2 newPosition = Position + movement * Speed * deltaTime;
+
+            // Check collision if a collision checker was provided
+            if (canMove != null)
+            {
+                var newBounds = GetCollisionBoundsAt(newPosition);
+                if (!canMove(newBounds))
+                {
+                    // Try sliding along X axis only
+                    var slideX = new Vector2(newPosition.X, Position.Y);
+                    var slideXBounds = GetCollisionBoundsAt(slideX);
+                    if (canMove(slideXBounds))
+                    {
+                        newPosition = slideX;
+                    }
+                    else
+                    {
+                        // Try sliding along Y axis only
+                        var slideY = new Vector2(Position.X, newPosition.Y);
+                        var slideYBounds = GetCollisionBoundsAt(slideY);
+                        if (canMove(slideYBounds))
+                        {
+                            newPosition = slideY;
+                        }
+                        else
+                        {
+                            // Can't move at all
+                            newPosition = Position;
+                        }
+                    }
+                }
+            }
+
+            Position = newPosition;
         }
 
         // Update animation state
@@ -128,13 +166,35 @@ public class Player : IRenderable
     public Vector2 Center => Position;
 
     /// <summary>
-    /// Get the bounding rectangle for collision (future use).
+    /// Get the bounding rectangle for visual bounds.
     /// </summary>
     public Rectangle Bounds => new(
         (int)(Position.X - Width / 2f),
         (int)(Position.Y - Height / 2f),
         Width,
         Height
+    );
+
+    /// <summary>
+    /// Get the collision bounding box (smaller, at feet).
+    /// Used for collision detection with world objects.
+    /// </summary>
+    public Rectangle CollisionBounds => new(
+        (int)(Position.X - CollisionWidth / 2f),
+        (int)(Position.Y + Height / 2f - CollisionHeight),
+        CollisionWidth,
+        CollisionHeight
+    );
+
+    /// <summary>
+    /// Get collision bounds at a hypothetical position.
+    /// Used to check collisions before moving.
+    /// </summary>
+    public Rectangle GetCollisionBoundsAt(Vector2 position) => new(
+        (int)(position.X - CollisionWidth / 2f),
+        (int)(position.Y + Height / 2f - CollisionHeight),
+        CollisionWidth,
+        CollisionHeight
     );
 
     /// <summary>

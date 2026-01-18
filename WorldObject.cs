@@ -134,5 +134,14 @@ public class WorldObject : IRenderable
         };
     }
 
+    /// <summary>Create a mana node (blue glowing rock, harvestable for mana).</summary>
+    public static WorldObject CreateManaNode(Vector2 position)
+    {
+        return new WorldObject("mana_node", position, 40, 48, new Color(80, 150, 255), true)
+        {
+            CollisionHeight = 12
+        };
+    }
+
     #endregion
 }
