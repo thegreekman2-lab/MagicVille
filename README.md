@@ -79,6 +79,7 @@ MagicVille/
 ├── Material.cs         # Stackable material items (Wood, Stone, etc.)
 ├── SpriteAnimator.cs   # Sprite animation with direction rows
 ├── SaveData.cs         # Serializable game state DTO
+├── TileSaveData.cs     # Serializable modified tile data
 ├── SaveManager.cs      # JSON save/load with polymorphic support
 └── Saves/              # Save files (created at runtime)
 ```
@@ -109,8 +110,15 @@ MagicVille/
 - Polymorphic type discriminator for Item subclasses
 - Saves stored in `Saves/` folder alongside the executable
 - Inventory state persisted with item types and quantities
+- **World persistence**: Modified tiles saved as delta from seeded default map
 
 ## Version History
+
+### v2 - World Persistence (Current)
+- **Bug fix**: Map tiles now properly save and load
+- Seeded map generation for deterministic world recreation
+- TileSaveData stores only modified tiles (delta compression)
+- Load resets map to default, then applies saved modifications
 
 ### v1 - Complete Gameplay Foundation
 - Item/Tool/Material system with polymorphic serialization

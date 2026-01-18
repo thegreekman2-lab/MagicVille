@@ -42,6 +42,7 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Save System
 - **SaveData.cs**: DTO for serializable game state
+- **TileSaveData.cs**: DTO for modified tile positions and IDs
 - **SaveManager.cs**: JSON save/load with polymorphic Item support
 
 ## Key Patterns
@@ -64,6 +65,12 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 [JsonDerivedType(typeof(Material), "material")]
 public abstract class Item { ... }
 ```
+
+### World Persistence (v2)
+- `GameLocation.CreateTestMap(seed)` generates deterministic maps from seed
+- `WorldManager.GetModifiedTiles()` compares current map vs freshly generated default
+- Only tiles that differ from default are saved (delta compression)
+- On load: regenerate default map from seed, then apply saved modifications
 
 ## MonoGame Specifics
 
