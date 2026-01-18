@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace MagicVille;
 
-public class Player
+public class Player : IRenderable
 {
     // Position in world coordinates (pixels, not tiles)
     public Vector2 Position { get; set; }
@@ -136,4 +136,10 @@ public class Player
         Width,
         Height
     );
+
+    /// <summary>
+    /// Y coordinate used for depth sorting.
+    /// Uses the bottom of the player's feet for accurate Y-sorting.
+    /// </summary>
+    public float SortY => Position.Y + Height / 2f;
 }

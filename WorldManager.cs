@@ -14,6 +14,7 @@ public class WorldManager
     public Camera2D Camera { get; private set; }
     public Player Player { get; private set; }
     public InputManager Input { get; private set; }
+    public List<WorldObject> Objects { get; private set; } = new();
 
     // World metadata
     public string CurrentLocationName { get; private set; } = "Farm";
@@ -74,6 +75,41 @@ public class WorldManager
 
         // Initialize player spritesheet
         Player.SetSpritesheet(_playerSpritesheet, SpriteFrameWidth, SpriteFrameHeight);
+
+        // Spawn world objects
+        SpawnTestObjects();
+    }
+
+    /// <summary>
+    /// Spawn test objects for demonstrating Y-sorting.
+    /// </summary>
+    private void SpawnTestObjects()
+    {
+        Objects.Clear();
+
+        // Spawn trees scattered around the map
+        Objects.Add(WorldObject.CreateTree(new Vector2(3 * 64, 3 * 64)));
+        Objects.Add(WorldObject.CreateTree(new Vector2(5 * 64, 10 * 64)));
+        Objects.Add(WorldObject.CreateTree(new Vector2(20 * 64, 5 * 64)));
+        Objects.Add(WorldObject.CreateTree(new Vector2(22 * 64, 12 * 64)));
+        Objects.Add(WorldObject.CreateTree(new Vector2(10 * 64, 3 * 64)));
+
+        // Spawn rocks
+        Objects.Add(WorldObject.CreateRock(new Vector2(8 * 64, 5 * 64)));
+        Objects.Add(WorldObject.CreateRock(new Vector2(12 * 64, 8 * 64)));
+        Objects.Add(WorldObject.CreateRock(new Vector2(18 * 64, 10 * 64)));
+        Objects.Add(WorldObject.CreateRock(new Vector2(6 * 64, 12 * 64)));
+
+        // Spawn bushes
+        Objects.Add(WorldObject.CreateBush(new Vector2(4 * 64, 6 * 64)));
+        Objects.Add(WorldObject.CreateBush(new Vector2(15 * 64, 4 * 64)));
+        Objects.Add(WorldObject.CreateBush(new Vector2(25 * 64, 8 * 64)));
+
+        // Spawn a fence line
+        for (int i = 0; i < 5; i++)
+        {
+            Objects.Add(WorldObject.CreateFence(new Vector2((16 + i) * 64, 14 * 64)));
+        }
     }
 
     public void Update(GameTime gameTime)
@@ -238,9 +274,14 @@ public class WorldManager
             transformMatrix: Camera.GetTransformMatrix()
         );
 
+        // Layer 1: Tiles (always background)
         CurrentLocation.Draw(spriteBatch, _pixel, Camera);
+
+        // Layer 2: Reticle (on top of tiles, below objects)
         DrawReticle(spriteBatch);
-        Player.Draw(spriteBatch, _pixel);
+
+        // Layer 3: Y-sorted objects and player
+        DrawSorted(spriteBatch);
 
         spriteBatch.End();
 
@@ -254,6 +295,34 @@ public class WorldManager
         DrawHotbar(spriteBatch);
 
         spriteBatch.End();
+    }
+
+    /// <summary>
+    /// Draw all world objects and player with proper Y-sorting (depth ordering).
+    /// Objects with lower Y are drawn first (behind), higher Y drawn last (in front).
+    /// </summary>
+    private void DrawSorted(SpriteBatch spriteBatch)
+    {
+        // Build list of all renderables
+        var renderables = new List<IRenderable>(Objects.Count + 1);
+
+        // Add player
+        renderables.Add(Player);
+
+        // Add all world objects
+        foreach (var obj in Objects)
+        {
+            renderables.Add(obj);
+        }
+
+        // Sort by Y position (ascending = back to front)
+        renderables.Sort((a, b) => a.SortY.CompareTo(b.SortY));
+
+        // Draw in sorted order
+        foreach (var renderable in renderables)
+        {
+            renderable.Draw(spriteBatch, _pixel);
+        }
     }
 
     /// <summary>
