@@ -28,8 +28,8 @@ public class Player : IRenderable
     // Current facing direction
     public Direction Facing { get; private set; } = Direction.Down;
 
-    // Sprite animation
-    private SpriteAnimator _animator;
+    // Sprite animation (set via SetSpritesheet, nullable until then)
+    private SpriteAnimator? _animator;
 
     // Player inventory (hotbar)
     public Inventory Inventory { get; } = new();

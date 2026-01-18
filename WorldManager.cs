@@ -10,11 +10,11 @@ namespace MagicVille;
 
 public class WorldManager
 {
-    // Live game objects
-    public GameLocation CurrentLocation { get; private set; }
-    public Camera2D Camera { get; private set; }
-    public Player Player { get; private set; }
-    public InputManager Input { get; private set; }
+    // Live game objects (initialized in Initialize())
+    public GameLocation CurrentLocation { get; private set; } = null!;
+    public Camera2D Camera { get; private set; } = null!;
+    public Player Player { get; private set; } = null!;
+    public InputManager Input { get; private set; } = null!;
     public List<WorldObject> Objects { get; private set; } = new();
 
     // World metadata
@@ -31,9 +31,10 @@ public class WorldManager
     private Point _targetTile;
     private bool _targetInRange;
 
-    private Texture2D _pixel;
-    private Texture2D _playerSpritesheet;
-    private GraphicsDevice _graphicsDevice;
+    // Graphics resources (initialized in Initialize())
+    private Texture2D _pixel = null!;
+    private Texture2D _playerSpritesheet = null!;
+    private GraphicsDevice _graphicsDevice = null!;
 
     // Spritesheet frame dimensions
     private const int SpriteFrameWidth = 32;
