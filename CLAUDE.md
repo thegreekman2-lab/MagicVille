@@ -12,18 +12,69 @@ dotnet run        # Build and run the game
 
 ## Project Overview
 
-MagicVille is a MonoGame project targeting .NET 8.0 using the DesktopGL (OpenGL) backend.
+MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL/OpenGL backend). Inspired by Stardew Valley.
 
 ## Architecture
 
-- **Program.cs**: Entry point that instantiates and runs the game
-- **Game1.cs**: Main game class inheriting from MonoGame's `Game` class
-  - `LoadContent()`: Load textures, sounds, and other assets
-  - `Update(GameTime)`: Game logic runs here (input, physics, AI)
-  - `Draw(GameTime)`: Rendering code goes here
+### Core Game Loop
+- **Program.cs**: Entry point
+- **Game1.cs**: MonoGame Game class, handles window resize events
+- **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
+
+### World & Tiles
+- **GameLocation.cs**: Tile map container with random generation (30x17 tiles for 1920x1080)
+- **Tile.cs**: Tile struct with ID and walkability. Types: Grass, Dirt, Water, Stone, WetDirt, Tilled
+- **Camera2D.cs**: 2D camera with dynamic viewport support for window resizing
+
+### Player & Animation
+- **Player.cs**: Player entity with WASD movement and sprite animation
+- **SpriteAnimator.cs**: Handles spritesheet animation with direction-based rows (Down, Up, Left, Right)
+
+### Item System (Polymorphic)
+- **Item.cs**: Abstract base class with `[JsonPolymorphic]` for serialization
+- **Tool.cs**: Tools with ResourceCost and PowerLevel (Hoe, Axe, Pickaxe, Watering Can, Scythe, Earth Wand, Hydro Wand)
+- **Material.cs**: Stackable items with Quantity and MaxStack (Wood, Stone, etc.)
+- **Inventory.cs**: 10-slot hotbar with stacking logic and slot selection
+
+### Input & Interaction
+- **InputManager.cs**: Mouse/keyboard state tracking, screen-to-world coordinate conversion
+- Tool interaction uses range checking (96px) with visual reticle feedback
+
+### Save System
+- **SaveData.cs**: DTO for serializable game state
+- **SaveManager.cs**: JSON save/load with polymorphic Item support
+
+## Key Patterns
+
+### Tool Interaction Flow
+1. `InputManager.GetMouseTilePosition(camera)` converts screen → tile coordinates
+2. Range check against player position (96px / ~1.5 tiles)
+3. `WorldManager.InteractWithTile()` applies tool effect based on `tool.RegistryKey`
+4. Tile type is modified (e.g., Grass → Tilled)
+
+### Coordinate Conversion
+- Camera stores `GraphicsDevice` reference (not Viewport) to support dynamic window resizing
+- `Camera2D.ScreenToWorld()` uses inverted transform matrix
+- Always reads `GraphicsDevice.Viewport` for current dimensions
+
+### Item Serialization
+```csharp
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(Tool), "tool")]
+[JsonDerivedType(typeof(Material), "material")]
+public abstract class Item { ... }
+```
 
 ## MonoGame Specifics
 
-- Window size: 800x480 pixels
-- Uses `SpriteBatch` for 2D rendering
-- Game assets should be placed in a Content folder and processed with the MonoGame Content Pipeline (MGCB)
+- Default window: 800x480 pixels (resizable)
+- Tile size: 64x64 pixels
+- Uses `SpriteBatch` with `SamplerState.PointClamp` for crisp pixel art
+- Two render passes: world (with camera transform) and UI (screen space)
+
+## Debug Controls
+
+| Key | Action |
+|-----|--------|
+| K | Save game to `debug_save.json` |
+| L | Load game from `debug_save.json` |
