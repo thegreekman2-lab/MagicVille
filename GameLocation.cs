@@ -71,7 +71,7 @@ public class GameLocation
         1 => new Color(139, 90, 43),   // Dirt - brown
         2 => new Color(30, 144, 255),  // Water - blue
         3 => new Color(128, 128, 128), // Stone - gray
-        4 => new Color(90, 60, 30),    // WetDirt - dark brown
+        4 => new Color(100, 100, 140), // WetDirt - blue-gray tint (clearly wet)
         5 => new Color(160, 110, 60),  // Tilled - light brown with furrows
         6 => new Color(139, 90, 60),   // Wood - wood floor
         7 => new Color(80, 80, 90),    // Wall - dark gray stone wall

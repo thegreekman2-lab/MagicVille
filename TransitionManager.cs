@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 namespace MagicVille;
 
 /// <summary>
-/// Transition states for location warping.
+/// Transition states for location warping and sleeping.
 /// </summary>
 public enum TransitionState
 {
@@ -17,7 +17,9 @@ public enum TransitionState
     /// <summary>Screen fully black, safe to swap maps.</summary>
     SwappingMap,
     /// <summary>Screen fading back in from black.</summary>
-    FadingIn
+    FadingIn,
+    /// <summary>Screen fully black, performing sleep (save + day advance).</summary>
+    Sleeping
 }
 
 /// <summary>
@@ -54,6 +56,15 @@ public class TransitionManager
     public event Action? OnTransitionComplete;
 
     /// <summary>
+    /// Event fired when screen is black during sleep transition.
+    /// Handler should save game and advance day.
+    /// </summary>
+    public event Action? OnSleep;
+
+    // Whether current transition is a sleep (not a map swap)
+    private bool _isSleeping;
+
+    /// <summary>
     /// Start a transition to a new location.
     /// </summary>
     /// <param name="targetLocation">Name of the destination location.</param>
@@ -65,6 +76,20 @@ public class TransitionManager
 
         _pendingTargetLocation = targetLocation;
         _pendingTargetPosition = targetPosition;
+        _isSleeping = false;
+        State = TransitionState.FadingOut;
+        Alpha = 0f;
+    }
+
+    /// <summary>
+    /// Start a sleep transition (fade out -> save/advance day -> fade in).
+    /// </summary>
+    public void StartSleepTransition()
+    {
+        if (IsTransitioning)
+            return;
+
+        _isSleeping = true;
         State = TransitionState.FadingOut;
         Alpha = 0f;
     }
@@ -85,7 +110,8 @@ public class TransitionManager
                 if (Alpha >= 1f)
                 {
                     Alpha = 1f;
-                    State = TransitionState.SwappingMap;
+                    // Branch based on whether this is a sleep or map swap
+                    State = _isSleeping ? TransitionState.Sleeping : TransitionState.SwappingMap;
                 }
                 break;
 
@@ -95,12 +121,19 @@ public class TransitionManager
                 State = TransitionState.FadingIn;
                 break;
 
+            case TransitionState.Sleeping:
+                // Fire the sleep event - save game and advance day
+                OnSleep?.Invoke();
+                State = TransitionState.FadingIn;
+                break;
+
             case TransitionState.FadingIn:
                 Alpha -= deltaTime / FadeDuration;
                 if (Alpha <= 0f)
                 {
                     Alpha = 0f;
                     State = TransitionState.Playing;
+                    _isSleeping = false;
                     OnTransitionComplete?.Invoke();
                 }
                 break;

@@ -46,9 +46,9 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Item System (Polymorphic)
 - **Item.cs**: Abstract base class with `[JsonPolymorphic]` for serialization
-- **Tool.cs**: Tools with ResourceCost and PowerLevel (Hoe, Axe, Pickaxe, Watering Can, Scythe, Earth Wand, Hydro Wand)
-- **Material.cs**: Stackable items with Quantity and MaxStack (Wood, Stone, etc.)
-- **Inventory.cs**: 10-slot hotbar with stacking logic and slot selection
+- **Tool.cs**: Tools with ResourceCost, PowerLevel, AffectsTileThroughObjects (Hoe, Axe, Pickaxe, Watering Can, Scythe, Earth Wand, Hydro Wand)
+- **Material.cs**: Stackable items with Quantity and MaxStack (Wood, Stone, Corn, Tomato, etc.)
+- **Inventory.cs**: 10-slot hotbar with stacking logic, slot selection, and `AddItem()` returns bool for full inventory handling
 
 ### Input & Interaction
 - **InputManager.cs**: Mouse/keyboard state tracking, screen-to-world coordinate conversion
@@ -73,13 +73,137 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 ### Tool Interaction Flow
 1. `InputManager.GetMouseTilePosition(camera)` converts screen → tile coordinates
 2. Range check against player position (96px / ~1.5 tiles)
-3. `WorldManager.InteractWithTile()` applies tool effect based on `tool.RegistryKey`
-4. Tile type is modified (e.g., Grass → Tilled)
+3. `WorldManager.InteractWithTile()` checks for objects first, then tiles
+4. Object interaction based on tool type (polymorphic dispatch)
+5. **Critical Check**: `tool.AffectsTileThroughObjects`
+   - `false` (default): Tool stops at object (Pickaxe, Axe, Scythe)
+   - `true`: Tool continues to modify tile (Watering Can, Hydro Wand)
+6. Tile type is modified (e.g., Grass → Tilled, Tilled → WetDirt)
+
+### Tool Pass-Through Property (v2.6)
+```csharp
+public class Tool : Item
+{
+    // If true, tool effect passes through objects to also affect the tile
+    public bool AffectsTileThroughObjects { get; init; } = false;
+}
+
+// Example: Watering Can waters crop AND wets soil
+new Tool("watering_can", ..., affectsTileThroughObjects: true);
+```
 
 ### Coordinate Conversion
 - Camera stores `GraphicsDevice` reference (not Viewport) to support dynamic window resizing
 - `Camera2D.ScreenToWorld()` uses inverted transform matrix
 - Always reads `GraphicsDevice.Viewport` for current dimensions
+
+### World ↔ Grid Coordinate Bridge (v2.6)
+Objects use "smart alignment" with pixel offsets, but tile lookups need grid coordinates:
+```csharp
+// WorldObject.GetGridPosition() bridges Visual World → Data World
+public Point GetGridPosition()
+{
+    const int TileSize = GameLocation.TileSize; // 64
+    float centerX = Position.X;                  // Already at horizontal center (bottom-center pivot)
+    float centerY = Position.Y - (Height / 2f);  // Vertical center of object
+    return new Point((int)(centerX / TileSize), (int)(centerY / TileSize));
+}
+
+// Usage in Crop.OnNewDay:
+Point gridPos = GetGridPosition();
+Tile tile = location.GetTile(gridPos.X, gridPos.Y);
+bool tileIsWet = (tile.Id == Tile.WetDirt.Id);
+```
+
+### Smart Object Alignment (v2.6)
+```csharp
+// WorldManager.GetAlignedPosition(tileX, tileY, objWidth, objHeight)
+// Uses height to determine alignment:
+if (objHeight <= TileSize)
+{
+    // Small objects: center vertically (e.g., rocks, seeds, bushes)
+    y = (tileY * TileSize) + (TileSize / 2f) + (objHeight / 2f);
+}
+else
+{
+    // Tall objects: align to bottom (e.g., trees, buildings)
+    y = (tileY * TileSize) + TileSize;
+}
+// X is always centered: (tileX * TileSize) + (TileSize / 2f)
+```
+
+### Two-Pass Day Processing (v2.6)
+**CRITICAL**: Order of operations matters for crop growth:
+```csharp
+private void OnDayPassed(int newDay)
+{
+    // PASS 1: GROWTH PHASE - Tiles still wet
+    foreach (var (locationName, location) in Locations)
+    {
+        if (LocationObjects.TryGetValue(locationName, out var objects))
+        {
+            ProcessObjectsNewDay(location, objects);
+            // Crops check tile.Id == Tile.WetDirt.Id here
+        }
+    }
+
+    // PASS 2: EVAPORATION PHASE - Dry tiles after processing
+    foreach (var (locationName, location) in Locations)
+    {
+        ResetLocationTiles(location); // WetDirt → Tilled
+    }
+}
+```
+
+### Harvest Transaction System (v2.7)
+Data-driven crop harvesting with inventory management:
+
+```csharp
+// Crop.cs - Harvest Properties
+public string HarvestItemId { get; set; }        // "tomato", "corn", etc.
+public int HarvestQuantity { get; set; } = 1;   // Items per harvest
+public bool Regrows { get; set; } = false;       // Regrows after harvest?
+public CropStage HarvestResetStage { get; set; } // Stage to reset to if Regrows
+
+// Creates harvest item from configured data
+public Item? GetHarvestDrop()
+{
+    // TODO: Replace with Item Database lookup in v3
+    return new Material(
+        registryKey: HarvestItemId,
+        name: DisplayName,
+        description: $"Fresh {DisplayName} from the farm.",
+        quantity: HarvestQuantity
+    );
+}
+```
+
+```csharp
+// WorldManager.TryHarvestCrop() - Transaction Flow
+private bool TryHarvestCrop(Crop crop, WorldObject obj)
+{
+    // 1. Validate crop is ready
+    if (!crop.ReadyToHarvest) return true; // Handled but not harvestable
+
+    // 2. Create harvest item
+    Item? reward = crop.GetHarvestDrop();
+
+    // 3. Try adding to inventory (returns bool)
+    bool success = Player.Inventory.AddItem(reward);
+
+    // 4. Handle outcome
+    if (success)
+    {
+        if (crop.Regrows)
+            crop.ResetForRegrowth();  // Reset stage, keep crop
+        else
+            Objects.Remove(obj);      // Remove from world
+    }
+    // If !success: Inventory full - do NOT modify crop
+
+    return true;
+}
+```
 
 ### Item Serialization
 ```csharp

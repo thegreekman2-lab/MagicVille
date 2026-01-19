@@ -22,8 +22,11 @@ public class WorldManager
     public InputManager Input { get; private set; } = null!;
     public TransitionManager Transition { get; private set; } = null!;
 
-    // Objects are per-location (stored in CurrentLocation context)
-    public List<WorldObject> Objects { get; private set; } = new();
+    // Objects stored per-location for global persistence
+    public Dictionary<string, List<WorldObject>> LocationObjects { get; private set; } = new();
+
+    // Convenience accessor for current location's objects
+    public List<WorldObject> Objects => LocationObjects.TryGetValue(CurrentLocationName, out var objs) ? objs : new();
 
     // World metadata
     public string CurrentLocationName => CurrentLocation?.Name ?? "Unknown";
@@ -34,6 +37,9 @@ public class WorldManager
 
     // Tool interaction range (in pixels, ~1.5 tiles)
     private const float InteractionRange = 96f;
+
+    // Tile size constant for alignment calculations
+    private const int TileSize = GameLocation.TileSize;
 
     // Current targeting state
     private Point _targetTile;
@@ -65,6 +71,10 @@ public class WorldManager
         // Create transition manager and subscribe to events
         Transition = new TransitionManager();
         Transition.OnSwapMap += HandleMapSwap;
+        Transition.OnSleep += HandleSleep;
+
+        // Subscribe to day change events for daily simulation
+        TimeManager.OnDayChanged += OnDayPassed;
 
         // Create 1x1 white pixel texture for placeholder rendering
         _pixel = new Texture2D(graphicsDevice, 1, 1);
@@ -105,6 +115,7 @@ public class WorldManager
 
     /// <summary>
     /// Handle the map swap when transition screen is fully black.
+    /// Objects persist per-location - only spawn on first visit.
     /// </summary>
     private void HandleMapSwap(string targetLocation, Vector2 targetPosition)
     {
@@ -118,13 +129,18 @@ public class WorldManager
         CurrentLocation = newLocation;
         Player.Position = targetPosition;
 
-        // Clear/reload objects for the new location
-        Objects.Clear();
-        if (targetLocation == "Farm")
+        // Only spawn objects if this location hasn't been visited yet
+        if (!LocationObjects.ContainsKey(targetLocation))
         {
-            SpawnFarmObjects();
+            if (targetLocation == "Farm")
+            {
+                SpawnFarmObjects();
+            }
+            else if (targetLocation == "Cabin")
+            {
+                SpawnCabinObjects();
+            }
         }
-        // Cabin has no objects for now
 
         // Snap camera to new player position
         Camera.CenterOn(Player.Center);
@@ -133,12 +149,193 @@ public class WorldManager
     }
 
     /// <summary>
+    /// Handle the sleep action when screen is fully black.
+    /// Saves game and advances to next day.
+    /// </summary>
+    private void HandleSleep()
+    {
+        Debug.WriteLine("[Sleep] Screen black - saving and advancing day...");
+        Save();
+        TimeManager.StartNewDay();
+        Debug.WriteLine($"[Sleep] Now Day {TimeManager.Day}, {TimeManager.GetFormattedTime()}");
+    }
+
+    /// <summary>
+    /// Handle the start of a new day.
+    ///
+    /// CRITICAL ORDER OF OPERATIONS (Two-Pass System):
+    ///
+    /// PASS 1 - THE GROWTH PHASE:
+    ///   Process OnNewDay() for all world objects while tiles are STILL WET.
+    ///   Crops check tile state and grow if soil is wet.
+    ///
+    /// PASS 2 - THE EVAPORATION PHASE:
+    ///   Dry out wet tiles AFTER all objects have processed.
+    ///   This ensures crops see wet soil when they wake up.
+    ///
+    /// BUG FIX: Previously tiles were dried BEFORE objects processed,
+    /// causing crops to always see dry soil and never grow.
+    /// </summary>
+    private void OnDayPassed(int newDay)
+    {
+        Debug.WriteLine("╔════════════════════════════════════════════════════════════════╗");
+        Debug.WriteLine($"║ [WorldManager] ═══ NEW DAY {newDay} ═══");
+        Debug.WriteLine("╚════════════════════════════════════════════════════════════════╝");
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PASS 1: THE GROWTH PHASE
+        // Process all objects WHILE TILES ARE STILL WET
+        // Crops can check tile state and grow accordingly
+        // ═══════════════════════════════════════════════════════════════════
+        Debug.WriteLine("[WorldManager] ▶ PASS 1: Growth Phase (tiles still wet)");
+
+        foreach (var (locationName, location) in Locations)
+        {
+            // Get objects for this location
+            if (LocationObjects.TryGetValue(locationName, out var objects))
+            {
+                ProcessObjectsNewDay(location, objects);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PASS 2: THE EVAPORATION PHASE
+        // Dry out tiles AFTER objects have processed
+        // ═══════════════════════════════════════════════════════════════════
+        Debug.WriteLine("[WorldManager] ▶ PASS 2: Evaporation Phase (drying tiles)");
+
+        foreach (var (locationName, location) in Locations)
+        {
+            ResetLocationTiles(location);
+        }
+
+        Debug.WriteLine($"[WorldManager] Day {newDay} processing complete");
+    }
+
+    /// <summary>
+    /// Reset tile states for a location at start of day.
+    /// - Wet soil dries out -> becomes tilled soil
+    /// </summary>
+    private void ResetLocationTiles(GameLocation location)
+    {
+        int driedCount = 0;
+
+        for (int y = 0; y < location.Height; y++)
+        {
+            for (int x = 0; x < location.Width; x++)
+            {
+                var tile = location.GetTile(x, y);
+
+                // WetDirt dries out overnight -> Tilled
+                if (tile.Id == Tile.WetDirt.Id)
+                {
+                    location.SetTile(x, y, Tile.Tilled);
+                    driedCount++;
+                }
+            }
+        }
+
+        if (driedCount > 0)
+        {
+            Debug.WriteLine($"[NewDay] {location.Name}: {driedCount} wet tiles dried out");
+        }
+    }
+
+    /// <summary>
+    /// Process OnNewDay() for all world objects in a specific location.
+    /// Passes the location to each object so they can check tile states.
+    /// Removes objects that return true (dead/depleted).
+    /// </summary>
+    /// <param name="location">The location containing these objects (for tile state checks).</param>
+    /// <param name="objects">The list of objects to process.</param>
+    private void ProcessObjectsNewDay(GameLocation location, List<WorldObject> objects)
+    {
+        Debug.WriteLine($"[NewDay] Processing {objects.Count} objects in {location.Name}...");
+
+        var objectsToRemove = new List<WorldObject>();
+
+        foreach (var obj in objects)
+        {
+            // Pass location to OnNewDay so objects can check tile states
+            bool shouldRemove = obj.OnNewDay(location);
+            if (shouldRemove)
+            {
+                objectsToRemove.Add(obj);
+            }
+        }
+
+        // Remove dead/depleted objects
+        foreach (var obj in objectsToRemove)
+        {
+            objects.Remove(obj);
+            Point gridPos = obj.GetGridPosition();
+            Debug.WriteLine($"[NewDay] Removed {obj.Name} at grid ({gridPos.X}, {gridPos.Y})");
+        }
+
+        Debug.WriteLine($"[NewDay] {location.Name}: Processed {objects.Count} objects, removed {objectsToRemove.Count}");
+    }
+
+    #region Smart Object Alignment
+
+    /// <summary>
+    /// Calculate aligned position for an object on a tile using the Hybrid Approach:
+    /// - Small/Flat Objects (Height <= TileSize): Centered vertically on tile
+    /// - Tall/Standing Objects (Height > TileSize): Aligned to bottom of tile
+    /// - X-Axis: Always centered horizontally
+    ///
+    /// Note: Returns position for BOTTOM-CENTER pivot system used by WorldObject.
+    /// </summary>
+    /// <param name="tileX">Tile X coordinate</param>
+    /// <param name="tileY">Tile Y coordinate</param>
+    /// <param name="objWidth">Object width in pixels</param>
+    /// <param name="objHeight">Object height in pixels</param>
+    /// <returns>World position for object spawn (bottom-center pivot)</returns>
+    private static Vector2 GetAlignedPosition(int tileX, int tileY, int objWidth, int objHeight)
+    {
+        // X-Axis: Always center horizontally
+        // For bottom-center pivot, X is the center of the object
+        float x = (tileX * TileSize) + (TileSize / 2f);
+
+        float y;
+        if (objHeight <= TileSize)
+        {
+            // Case A: Small/Flat Objects - Center vertically on tile
+            // Visual center of tile, adjusted for bottom-center pivot
+            // Tile center Y + half of object height (since pivot is at bottom)
+            y = (tileY * TileSize) + (TileSize / 2f) + (objHeight / 2f);
+        }
+        else
+        {
+            // Case B: Tall/Standing Objects - Align to bottom of tile
+            // Object's feet touch the bottom edge of the tile
+            y = (tileY * TileSize) + TileSize;
+        }
+
+        return new Vector2(x, y);
+    }
+
+    /// <summary>
+    /// Get aligned position for a specific object type.
+    /// Uses the object's dimensions to determine alignment.
+    /// </summary>
+    private static Vector2 GetAlignedPositionForObject(int tileX, int tileY, WorldObject obj)
+    {
+        return GetAlignedPosition(tileX, tileY, obj.Width, obj.Height);
+    }
+
+    #endregion
+
+    /// <summary>
     /// Spawn world objects for the Farm location.
     /// Uses WorldSeed for reproducible placement.
+    /// Includes polymorphic objects: Trees, ManaNodes, Crops.
     /// </summary>
     private void SpawnFarmObjects()
     {
-        Objects.Clear();
+        // Ensure Farm has an object list
+        if (!LocationObjects.ContainsKey("Farm"))
+            LocationObjects["Farm"] = new List<WorldObject>();
+        LocationObjects["Farm"].Clear();
 
         // Use world seed for reproducible object placement
         var random = new Random(WorldSeed + 1); // +1 to differ from map generation
@@ -146,13 +343,14 @@ public class WorldManager
         int mapWidth = CurrentLocation.Width;
         int mapHeight = CurrentLocation.Height;
 
-        // Helper to get a valid spawn position (not on water, not too close to spawn)
-        Vector2 GetValidPosition()
+        // Helper to get valid tile coordinates (not on water, not too close to spawn, not on edges)
+        (int tileX, int tileY) GetValidTile()
         {
             for (int attempts = 0; attempts < 50; attempts++)
             {
-                int tileX = random.Next(mapWidth);
-                int tileY = random.Next(mapHeight);
+                // Spawn within safe bounds (1 to Width-2, 1 to Height-2) to avoid edges
+                int tileX = random.Next(1, mapWidth - 1);
+                int tileY = random.Next(1, mapHeight - 1);
 
                 // Skip player spawn area (around 7,7)
                 if (Math.Abs(tileX - 7) < 3 && Math.Abs(tileY - 7) < 3)
@@ -163,36 +361,98 @@ public class WorldManager
                 if (tile.Id == Tile.Water.Id)
                     continue;
 
-                return new Vector2(tileX * 64, tileY * 64);
+                return (tileX, tileY);
             }
-            return new Vector2(10 * 64, 10 * 64); // Fallback
+            return (10, 10); // Fallback
         }
 
-        // Spawn 5 rocks (breakable with pickaxe)
+        var farmObjects = LocationObjects["Farm"];
+
+        // Spawn 5 rocks (breakable with pickaxe) - 48x40, small so centered
         for (int i = 0; i < 5; i++)
         {
-            Objects.Add(WorldObject.CreateRock(GetValidPosition()));
+            var (tx, ty) = GetValidTile();
+            var pos = GetAlignedPosition(tx, ty, 48, 40); // Rock dimensions
+            farmObjects.Add(WorldObject.CreateRock(pos));
         }
 
-        // Spawn 5 mana nodes (blue rocks, breakable with pickaxe)
-        for (int i = 0; i < 5; i++)
+        // Spawn 3 ManaNode crystals (40x48, small-ish so centered)
         {
-            Objects.Add(WorldObject.CreateManaNode(GetValidPosition()));
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(ManaNode.CreateArcaneCrystal(GetAlignedPosition(tx, ty, 40, 48)));
         }
-
-        // Spawn 4 trees
-        for (int i = 0; i < 4; i++)
         {
-            Objects.Add(WorldObject.CreateTree(GetValidPosition()));
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(ManaNode.CreateFireCrystal(GetAlignedPosition(tx, ty, 40, 48)));
+        }
+        {
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(ManaNode.CreateNatureCrystal(GetAlignedPosition(tx, ty, 40, 48)));
         }
 
-        // Spawn 3 bushes
+        // Spawn 2 mature trees (64x96, TALL so bottom-aligned) + 2 saplings (32x48)
+        {
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(tx, ty, 64, 96)));
+        }
+        {
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(tx, ty, 64, 96)));
+        }
+        {
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(Tree.CreateOakSapling(GetAlignedPosition(tx, ty, 32, 48)));
+        }
+        {
+            var (tx, ty) = GetValidTile();
+            farmObjects.Add(Tree.CreatePineSapling(GetAlignedPosition(tx, ty, 32, 48)));
+        }
+
+        // Spawn 3 bushes (40x32, small so centered)
         for (int i = 0; i < 3; i++)
         {
-            Objects.Add(WorldObject.CreateBush(GetValidPosition()));
+            var (tx, ty) = GetValidTile();
+            var pos = GetAlignedPosition(tx, ty, 40, 32); // Bush dimensions
+            farmObjects.Add(WorldObject.CreateBush(pos));
         }
 
-        Debug.WriteLine($"[WorldManager] Spawned {Objects.Count} world objects (seed: {WorldSeed})");
+        // Spawn 2 test crops on tilled soil (32x16-48 depending on stage, small so centered)
+        // Crops start as seeds (32x16)
+        {
+            var (tileX, tileY) = GetValidTile();
+            CurrentLocation.SetTile(tileX, tileY, Tile.Tilled);
+            var pos = GetAlignedPosition(tileX, tileY, 32, 16); // Seed dimensions
+            farmObjects.Add(Crop.CreateCornSeed(pos, tileX, tileY));
+        }
+        {
+            var (tileX, tileY) = GetValidTile();
+            CurrentLocation.SetTile(tileX, tileY, Tile.Tilled);
+            var pos = GetAlignedPosition(tileX, tileY, 32, 16); // Seed dimensions
+            farmObjects.Add(Crop.CreateTomatoSeed(pos, tileX, tileY));
+        }
+
+        Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (seed: {WorldSeed})");
+    }
+
+    /// <summary>
+    /// Spawn world objects for the Cabin location.
+    /// Includes a bed for sleeping.
+    /// </summary>
+    private void SpawnCabinObjects()
+    {
+        // Ensure Cabin has an object list
+        if (!LocationObjects.ContainsKey("Cabin"))
+            LocationObjects["Cabin"] = new List<WorldObject>();
+        var cabinObjects = LocationObjects["Cabin"];
+        cabinObjects.Clear();
+
+        // Place bed in the upper-left area of the cabin (away from door)
+        // Cabin is 10x10 with walls, so interior is roughly 1-8 x 1-8
+        // Bed dimensions: 64x48 (tall enough to bottom-align)
+        var bedPosition = GetAlignedPosition(2, 3, 64, 48);
+        cabinObjects.Add(Bed.CreateWoodenBed(bedPosition));
+
+        Debug.WriteLine($"[WorldManager] Spawned {cabinObjects.Count} cabin objects");
     }
 
     public void Update(GameTime gameTime)
@@ -402,22 +662,43 @@ public class WorldManager
 
     /// <summary>
     /// Apply tool effect to a tile based on tool type.
-    /// PRIORITY: Check for world objects first before tile interactions.
+    ///
+    /// LOGIC FLOW (using AffectsTileThroughObjects):
+    /// 1. Check for WorldObject at target tile
+    /// 2. IF Object exists:
+    ///    - Interact with Object (e.g., Scythe harvesting, Pickaxe breaking)
+    ///    - CRITICAL: if (!tool.AffectsTileThroughObjects) return;
+    /// 3. If we passed that check (or no object exists), proceed to modify the Tile
+    ///
+    /// Examples:
+    /// - Pickaxe (false): Hits rock and STOPS (doesn't affect tile under it)
+    /// - Watering Can (true): Waters crop AND CONTINUES to wet the tile underneath
     /// </summary>
     private void InteractWithTile(Point tileCoords, Tool tool)
     {
-        // PRIORITY CHECK: Check for world object at this tile first
+        // STEP 1: Check for world object at this tile
         var targetObject = GetObjectAtTile(tileCoords);
+
+        // STEP 2: If object exists, interact with it
         if (targetObject != null)
         {
-            // Handle object interaction based on tool and object type
-            if (InteractWithObject(targetObject, tool))
+            bool objectHandled = InteractWithObject(targetObject, tool);
+
+            // CRITICAL CHECK: Does this tool affect tiles through objects?
+            if (!tool.AffectsTileThroughObjects)
             {
-                return; // Object handled the interaction, don't process tile
+                // Tool effect stops at the object (Pickaxe, Axe, Scythe, etc.)
+                return;
+            }
+
+            // Tool passes through - continue to tile logic (Watering Can, Hydro Wand, etc.)
+            if (objectHandled)
+            {
+                Debug.WriteLine($"[{tool.Name}] Pass-through: Also affecting tile at ({tileCoords.X}, {tileCoords.Y})");
             }
         }
 
-        // No object interaction, proceed with tile logic
+        // STEP 3: Proceed with tile modification
         var currentTile = CurrentLocation.GetTile(tileCoords.X, tileCoords.Y);
 
         switch (tool.RegistryKey)
@@ -490,6 +771,77 @@ public class WorldManager
     /// </summary>
     private bool InteractWithObject(WorldObject obj, Tool tool)
     {
+        // Handle polymorphic object types first
+        switch (obj)
+        {
+            case ManaNode manaNode:
+                // Pickaxe harvests mana (doesn't destroy node)
+                if (tool.RegistryKey == "pickaxe")
+                {
+                    int mana = manaNode.TryHarvest();
+                    if (mana > 0)
+                    {
+                        Debug.WriteLine($"[Pickaxe] Harvested {mana} mana from node at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                        // TODO: Add mana to player
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[Pickaxe] Mana node is depleted at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    }
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with mana node");
+                return true;
+
+            case Tree tree:
+                // Axe chops trees
+                if (tool.RegistryKey == "axe")
+                {
+                    bool remove = tree.TryChop();
+                    if (remove)
+                    {
+                        Objects.Remove(obj);
+                        Debug.WriteLine($"[Axe] Removed tree/stump at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[Axe] Chopped tree to stump at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    }
+                    // TODO: Drop wood material
+                    return true;
+                }
+                Debug.WriteLine($"[{tool.Name}] Can't interact with tree");
+                return true;
+
+            case Crop crop:
+                // Watering can waters crops
+                if (tool.RegistryKey == "watering_can" || tool.RegistryKey == "hydro_wand")
+                {
+                    crop.Water();
+                    Debug.WriteLine($"[{tool.Name}] Watered crop at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
+                    return true;
+                }
+                // Scythe (or empty hand in future) harvests mature crops
+                if (tool.RegistryKey == "scythe")
+                {
+                    return TryHarvestCrop(crop, obj);
+                }
+                // Other tools pass through crops
+                return false;
+
+            case Bed bed:
+                // Any tool click on bed triggers sleep transition
+                if (bed.TrySleep())
+                {
+                    Debug.WriteLine("[Bed] Player sleeping... Starting sleep transition");
+                    Transition.StartSleepTransition();
+                    return true;
+                }
+                Debug.WriteLine("[Bed] Cannot use this bed");
+                return true;
+        }
+
+        // Fall back to name-based interaction for base WorldObjects
         switch (obj.Name)
         {
             case "rock":
@@ -503,30 +855,6 @@ public class WorldManager
                 }
                 Debug.WriteLine($"[{tool.Name}] Can't interact with rock");
                 return true; // Block other tools from affecting tile under rock
-
-            case "mana_node":
-                // Pickaxe destroys mana nodes
-                if (tool.RegistryKey == "pickaxe")
-                {
-                    Objects.Remove(obj);
-                    Debug.WriteLine($"[Pickaxe] Harvested mana node at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
-                    // TODO: Give mana or mana crystal
-                    return true;
-                }
-                Debug.WriteLine($"[{tool.Name}] Can't interact with mana node");
-                return true; // Block other tools
-
-            case "tree":
-                // Axe chops trees
-                if (tool.RegistryKey == "axe")
-                {
-                    Objects.Remove(obj);
-                    Debug.WriteLine($"[Axe] Chopped tree at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
-                    // TODO: Drop wood material
-                    return true;
-                }
-                Debug.WriteLine($"[{tool.Name}] Can't interact with tree");
-                return true; // Block other tools
 
             case "bush":
                 // Scythe cuts bushes
@@ -557,6 +885,77 @@ public class WorldManager
         }
     }
 
+    /// <summary>
+    /// Attempt to harvest a crop with full inventory transaction logic.
+    ///
+    /// HARVEST TRANSACTION FLOW:
+    /// 1. Check if crop is ready (Mature stage)
+    /// 2. Create harvest item via GetHarvestDrop()
+    /// 3. Try to add item to player inventory
+    /// 4. IF success:
+    ///    - IF crop.Regrows: Reset crop to HarvestResetStage
+    ///    - ELSE: Remove crop from world
+    /// 5. IF fail (inventory full):
+    ///    - Show "Inventory Full" message
+    ///    - Do NOT remove or modify the crop
+    /// </summary>
+    /// <param name="crop">The crop to harvest.</param>
+    /// <param name="obj">The WorldObject reference (for removal).</param>
+    /// <returns>True - interaction was handled (even if harvest failed).</returns>
+    private bool TryHarvestCrop(Crop crop, WorldObject obj)
+    {
+        Point gridPos = crop.GetGridPosition();
+
+        // Step 1: Check if crop is ready to harvest
+        if (!crop.ReadyToHarvest)
+        {
+            Debug.WriteLine($"[Harvest] Crop not ready ({crop.Stage}) at ({gridPos.X}, {gridPos.Y})");
+            // TODO: Play "error" sound
+            return true; // Interaction handled, but harvest not possible
+        }
+
+        // Step 2: Create the harvest reward item
+        Item? reward = crop.GetHarvestDrop();
+        if (reward == null)
+        {
+            Debug.WriteLine($"[Harvest] ERROR: {crop.CropType} has no harvest drop configured!");
+            return true;
+        }
+
+        // Step 3: Try to add item to player inventory
+        bool addedToInventory = Player.Inventory.AddItem(reward);
+
+        // Step 4/5: Handle outcome
+        if (addedToInventory)
+        {
+            // SUCCESS: Item added to inventory
+            Debug.WriteLine($"[Harvest] ★ SUCCESS ★ Harvested {reward.Name} x{(reward is Material m ? m.Quantity : 1)} from {crop.CropType}");
+            // TODO: Play "pluck" sound
+
+            if (crop.Regrows)
+            {
+                // Regrowable crop: Reset to earlier stage
+                crop.ResetForRegrowth();
+                Debug.WriteLine($"[Harvest] {crop.CropType} will regrow from {crop.Stage}");
+            }
+            else
+            {
+                // Non-regrowable crop: Remove from world
+                Objects.Remove(obj);
+                Debug.WriteLine($"[Harvest] Removed {crop.CropType} at ({gridPos.X}, {gridPos.Y})");
+            }
+        }
+        else
+        {
+            // FAIL: Inventory full - do NOT modify crop
+            Debug.WriteLine($"[Harvest] FAILED - Inventory full! {crop.CropType} NOT harvested.");
+            // TODO: Play "error" sound
+            // TODO: Show "Inventory Full" notification on screen
+        }
+
+        return true; // Interaction was handled
+    }
+
     #endregion
 
     #region Drawing
@@ -579,8 +978,8 @@ public class WorldManager
             transformMatrix: Camera.GetTransformMatrix()
         );
 
-        // Layer 1: Tiles (always background)
-        CurrentLocation.Draw(spriteBatch, _pixel, Camera);
+        // Layer 1: Tiles with wet state visual feedback
+        DrawTiles(spriteBatch);
 
         // Layer 2: Reticle (on top of tiles, below objects)
         DrawReticle(spriteBatch);
@@ -590,6 +989,56 @@ public class WorldManager
 
         spriteBatch.End();
     }
+
+    /// <summary>
+    /// Draw all visible tiles with wet state visual tint.
+    /// Wet tiles (WetDirt) are rendered with a LightSteelBlue tint overlay.
+    /// </summary>
+    private void DrawTiles(SpriteBatch spriteBatch)
+    {
+        // Calculate visible tile range based on camera
+        var viewBounds = Camera.GetVisibleBounds();
+        int startX = Math.Max(0, (int)(viewBounds.Left / TileSize));
+        int startY = Math.Max(0, (int)(viewBounds.Top / TileSize));
+        int endX = Math.Min(CurrentLocation.Width, (int)(viewBounds.Right / TileSize) + 1);
+        int endY = Math.Min(CurrentLocation.Height, (int)(viewBounds.Bottom / TileSize) + 1);
+
+        for (int y = startY; y < endY; y++)
+        {
+            for (int x = startX; x < endX; x++)
+            {
+                var tile = CurrentLocation.GetTile(x, y);
+                var baseColor = GetTileColor(tile.Id);
+                var rect = new Rectangle(x * TileSize, y * TileSize, TileSize, TileSize);
+
+                // Check for wet state and apply visual tint
+                Color drawColor = baseColor;
+                if (tile.Id == Tile.WetDirt.Id)
+                {
+                    // Wet tiles get a LightSteelBlue tint for visual feedback
+                    drawColor = Color.Lerp(baseColor, Color.LightSteelBlue, 0.4f);
+                }
+
+                spriteBatch.Draw(_pixel, rect, drawColor);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get the base color for a tile ID.
+    /// </summary>
+    private static Color GetTileColor(int tileId) => tileId switch
+    {
+        0 => new Color(34, 139, 34),   // Grass - forest green
+        1 => new Color(139, 90, 43),   // Dirt - brown
+        2 => new Color(30, 144, 255),  // Water - blue
+        3 => new Color(128, 128, 128), // Stone - gray
+        4 => new Color(90, 70, 50),    // WetDirt - dark soil base (tint applied in DrawTiles)
+        5 => new Color(160, 110, 60),  // Tilled - light brown with furrows
+        6 => new Color(139, 90, 60),   // Wood - wood floor
+        7 => new Color(80, 80, 90),    // Wall - dark gray stone wall
+        _ => Color.Magenta             // Unknown - debug pink
+    };
 
     /// <summary>
     /// Draw UI layer (hotbar, clock) in screen space.
@@ -713,9 +1162,10 @@ public class WorldManager
         );
 
         // Color based on range: Green = in range, Red = out of range
+        // Using 0.8f alpha (204/255) for better visibility
         Color reticleColor = _targetInRange
-            ? new Color(0, 255, 0, 100)   // Semi-transparent green
-            : new Color(255, 0, 0, 100);  // Semi-transparent red
+            ? new Color(0, 255, 0, 204)   // Bright green (80% opacity)
+            : new Color(255, 0, 0, 204);  // Bright red (80% opacity)
 
         // Draw filled rectangle
         spriteBatch.Draw(_pixel, tileRect, reticleColor);
@@ -936,6 +1386,12 @@ public class WorldManager
             "fiber" => new Color(34, 139, 34),
             "coal" => new Color(30, 30, 30),
             "copper_ore" => new Color(184, 115, 51),
+            // Harvest Items (Crops)
+            "corn" => new Color(255, 220, 80),      // Yellow
+            "tomato" => new Color(220, 50, 50),     // Red
+            "potato" => new Color(180, 140, 80),    // Tan
+            "carrot" => new Color(255, 140, 0),     // Orange
+            "wheat" => new Color(220, 190, 100),    // Golden
             _ => item switch
             {
                 Tool => new Color(100, 150, 255),
@@ -950,25 +1406,33 @@ public class WorldManager
     #region Save/Load
 
     /// <summary>
-    /// Get all tiles that differ from the default generated map.
-    /// Compares current state against a freshly generated map with same seed.
+    /// Get the default (freshly generated) version of a location for tile comparison.
     /// </summary>
-    private List<TileSaveData> GetModifiedTiles()
+    private GameLocation GetDefaultLocation(string locationName)
+    {
+        return locationName switch
+        {
+            "Farm" => GameLocation.CreateFarm(WorldSeed),
+            "Cabin" => GameLocation.CreateCabin(),
+            _ => GameLocation.CreateFarm(WorldSeed) // Fallback
+        };
+    }
+
+    /// <summary>
+    /// Get modified tiles for a specific location by comparing against its default.
+    /// </summary>
+    private List<TileSaveData> GetModifiedTilesForLocation(GameLocation location)
     {
         var modifiedTiles = new List<TileSaveData>();
+        var defaultMap = GetDefaultLocation(location.Name);
 
-        // Generate a fresh "default" map with the same seed
-        var defaultMap = GameLocation.CreateTestMap(WorldSeed);
-
-        // Compare every tile
-        for (int y = 0; y < CurrentLocation.Height; y++)
+        for (int y = 0; y < location.Height; y++)
         {
-            for (int x = 0; x < CurrentLocation.Width; x++)
+            for (int x = 0; x < location.Width; x++)
             {
-                var currentTile = CurrentLocation.GetTile(x, y);
+                var currentTile = location.GetTile(x, y);
                 var defaultTile = defaultMap.GetTile(x, y);
 
-                // If tile differs from default, save it
                 if (currentTile.Id != defaultTile.Id)
                 {
                     modifiedTiles.Add(new TileSaveData(x, y, currentTile.Id));
@@ -979,8 +1443,28 @@ public class WorldManager
         return modifiedTiles;
     }
 
+    /// <summary>
+    /// Creates save data for ALL locations (global persistence).
+    /// </summary>
     public SaveData CreateSaveData()
     {
+        // Save ALL locations (tiles + objects)
+        var locationSaveData = new List<LocationSaveData>();
+
+        foreach (var (locationName, location) in Locations)
+        {
+            var locData = new LocationSaveData
+            {
+                Name = locationName,
+                ModifiedTiles = GetModifiedTilesForLocation(location),
+                Objects = LocationObjects.TryGetValue(locationName, out var objs)
+                    ? new List<WorldObject>(objs)
+                    : new List<WorldObject>()
+            };
+            locationSaveData.Add(locData);
+            Debug.WriteLine($"[Save] {locationName}: {locData.ModifiedTiles.Count} tiles, {locData.Objects.Count} objects");
+        }
+
         return new SaveData
         {
             PlayerPositionX = Player.Position.X,
@@ -988,20 +1472,66 @@ public class WorldManager
             PlayerName = Player.Name,
             CurrentLocationName = CurrentLocationName,
             WorldSeed = WorldSeed,
+            Day = TimeManager.Day,
+            TimeOfDay = TimeManager.TimeOfDay,
             InventorySlots = Player.Inventory.ToSaveList(),
             ActiveHotbarSlot = Player.Inventory.ActiveSlotIndex,
-            ModifiedTiles = GetModifiedTiles()
+            Locations = locationSaveData
         };
     }
 
+    /// <summary>
+    /// Restores ALL locations from save data (global persistence).
+    /// </summary>
     public void ApplySaveData(SaveData data)
     {
         // Update world seed
         WorldSeed = data.WorldSeed;
 
-        // Reinitialize locations with saved seed
+        // Restore time state (without triggering OnDayChanged)
+        TimeManager.SetTime(data.Day, data.TimeOfDay);
+        Debug.WriteLine($"[WorldManager] Restored time: Day {data.Day}, {TimeManager.GetFormattedTime()}");
+
+        // Reinitialize locations with saved seed (creates default tiles)
         Locations["Farm"] = GameLocation.CreateFarm(WorldSeed);
         Locations["Cabin"] = GameLocation.CreateCabin();
+
+        // Clear all location objects
+        LocationObjects.Clear();
+
+        // Restore ALL locations from save data
+        foreach (var locData in data.Locations)
+        {
+            // Find the location
+            if (!Locations.TryGetValue(locData.Name, out var location))
+            {
+                Debug.WriteLine($"[Load] WARNING: Unknown location '{locData.Name}' in save");
+                continue;
+            }
+
+            // Apply modified tiles
+            foreach (var tileSave in locData.ModifiedTiles)
+            {
+                var tile = GetTileById(tileSave.TileId);
+                location.SetTile(tileSave.X, tileSave.Y, tile);
+            }
+
+            // Restore objects (or spawn defaults if none saved)
+            if (locData.Objects.Count > 0)
+            {
+                LocationObjects[locData.Name] = new List<WorldObject>(locData.Objects);
+            }
+            else
+            {
+                // No saved objects - spawn defaults
+                if (locData.Name == "Farm")
+                    SpawnFarmObjects();
+                else if (locData.Name == "Cabin")
+                    SpawnCabinObjects();
+            }
+
+            Debug.WriteLine($"[Load] {locData.Name}: {locData.ModifiedTiles.Count} tiles, {LocationObjects.GetValueOrDefault(locData.Name)?.Count ?? 0} objects");
+        }
 
         // Switch to saved location (default to Farm if not found)
         if (Locations.TryGetValue(data.CurrentLocationName, out var savedLocation))
@@ -1012,28 +1542,14 @@ public class WorldManager
         {
             CurrentLocation = Locations["Farm"];
         }
-        Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName} (seed: {WorldSeed})");
-
-        // Respawn objects for current location
-        Objects.Clear();
-        if (CurrentLocationName == "Farm")
-        {
-            SpawnFarmObjects();
-        }
-
-        // STEP 3: Apply modified tiles from save data
-        foreach (var tileSave in data.ModifiedTiles)
-        {
-            var tile = GetTileById(tileSave.TileId);
-            CurrentLocation.SetTile(tileSave.X, tileSave.Y, tile);
-        }
-        Debug.WriteLine($"[WorldManager] Applied {data.ModifiedTiles.Count} modified tiles");
 
         // Restore player state
         Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
         Player.Name = data.PlayerName;
         Player.Inventory.LoadFromSaveList(data.InventorySlots);
         Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
+
+        Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName}");
     }
 
     /// <summary>
@@ -1047,6 +1563,8 @@ public class WorldManager
         3 => Tile.Stone,
         4 => Tile.WetDirt,
         5 => Tile.Tilled,
+        6 => Tile.Wood,
+        7 => Tile.Wall,
         _ => Tile.Grass // Default fallback
     };
 
@@ -1054,8 +1572,9 @@ public class WorldManager
     {
         Debug.WriteLine("[WorldManager] Saving game...");
         var data = CreateSaveData();
+        Debug.WriteLine($"[WorldManager] Saving time: Day {data.Day}, Time {data.TimeOfDay} ({TimeManager.GetFormattedTime()})");
         SaveManager.Save(DebugSaveFile, data);
-        Debug.WriteLine($"[WorldManager] Saved {data.ModifiedTiles.Count} modified tiles");
+        Debug.WriteLine($"[WorldManager] Saved {data.Locations.Count} locations");
     }
 
     public void Load()
@@ -1064,7 +1583,9 @@ public class WorldManager
         var data = SaveManager.Load(DebugSaveFile);
         if (data != null)
         {
+            Debug.WriteLine($"[WorldManager] Loading time from save: Day {data.Day}, Time {data.TimeOfDay}");
             ApplySaveData(data);
+            Debug.WriteLine($"[WorldManager] After ApplySaveData: Day {TimeManager.Day}, Time {TimeManager.TimeOfDay}");
             Debug.WriteLine($"[WorldManager] Restored player at ({data.PlayerPositionX}, {data.PlayerPositionY})");
         }
     }

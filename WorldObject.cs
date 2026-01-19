@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Text.Json.Serialization;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -9,26 +10,40 @@ namespace MagicVille;
 /// Represents a physical object in the world (rocks, trees, fences, etc.).
 /// Objects have collision and are Y-sorted for proper 2.5D depth rendering.
 /// Position uses BOTTOM-CENTER pivot (feet position).
+///
+/// This is the base class for polymorphic world objects.
+/// Subclasses (Crop, Tree, ManaNode, Bed) override OnNewDay() for daily updates.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(WorldObject), "base")]
+[JsonDerivedType(typeof(Crop), "crop")]
+[JsonDerivedType(typeof(Tree), "tree")]
+[JsonDerivedType(typeof(ManaNode), "mana_node")]
+[JsonDerivedType(typeof(Bed), "bed")]
 public class WorldObject : IRenderable
 {
     /// <summary>Unique identifier for this object instance.</summary>
     public Guid Id { get; init; } = Guid.NewGuid();
 
     /// <summary>World position (BOTTOM-CENTER / feet of the sprite).</summary>
+    [JsonIgnore]
     public Vector2 Position { get; set; }
 
+    // Serialization helpers for Vector2
+    public float PositionX { get => Position.X; set => Position = new Vector2(value, Position.Y); }
+    public float PositionY { get => Position.Y; set => Position = new Vector2(Position.X, value); }
+
     /// <summary>Visual width in pixels.</summary>
-    public int Width { get; init; }
+    public int Width { get; set; }
 
     /// <summary>Visual height in pixels.</summary>
-    public int Height { get; init; }
+    public int Height { get; set; }
 
     /// <summary>Object type name (e.g., "rock", "tree", "fence").</summary>
-    public string Name { get; init; } = "";
+    public string Name { get; set; } = "";
 
     /// <summary>Whether this object blocks movement.</summary>
-    public bool IsCollidable { get; init; } = true;
+    public bool IsCollidable { get; set; } = true;
 
     /// <summary>
     /// Bounding box for collision detection.
@@ -57,8 +72,51 @@ public class WorldObject : IRenderable
     /// </summary>
     public float SortY => Position.Y;
 
+    /// <summary>
+    /// Get the grid (tile) coordinates for this object.
+    /// Converts from World Space (pixels) to Grid Space (tile indices).
+    ///
+    /// This is essential for bridging the "Visual World" (pixels with smart alignment)
+    /// and the "Data World" (tile-based lookups like ModifiedTiles dictionary).
+    ///
+    /// Uses the visual center of the object to determine tile ownership:
+    /// - centerX = Position.X (already at horizontal center for bottom-center pivot)
+    /// - centerY = Position.Y - Height/2 (vertical center of the object)
+    /// </summary>
+    /// <returns>Grid coordinates (tile X, tile Y) as a Point.</returns>
+    public Point GetGridPosition()
+    {
+        const int TileSize = GameLocation.TileSize;
+
+        // For bottom-center pivot: Position.X is already at horizontal center
+        // Vertical center is halfway up from the feet
+        float centerX = Position.X;
+        float centerY = Position.Y - (Height / 2f);
+
+        int gridX = (int)(centerX / TileSize);
+        int gridY = (int)(centerY / TileSize);
+
+        return new Point(gridX, gridY);
+    }
+
+    /// <summary>
+    /// Get the grid X coordinate for this object.
+    /// Shorthand for GetGridPosition().X.
+    /// </summary>
+    public int GridX => GetGridPosition().X;
+
+    /// <summary>
+    /// Get the grid Y coordinate for this object.
+    /// Shorthand for GetGridPosition().Y.
+    /// </summary>
+    public int GridY => GetGridPosition().Y;
+
     /// <summary>Placeholder color for rendering (until we have sprites).</summary>
-    public Color Color { get; init; } = Color.Gray;
+    [JsonIgnore]
+    public Color Color { get; set; } = Color.Gray;
+
+    // Serialization helpers for Color (packed RGBA int)
+    public uint ColorPacked { get => Color.PackedValue; set => Color = new Color(value); }
 
     public WorldObject() { }
 
@@ -98,6 +156,20 @@ public class WorldObject : IRenderable
         // Draw darker base/shadow at feet for visual clarity
         var shadowBounds = BoundingBox;
         spriteBatch.Draw(pixel, shadowBounds, new Color(0, 0, 0, 80));
+    }
+
+    /// <summary>
+    /// Called at the start of each new day. Override in subclasses for daily updates.
+    /// Base implementation does nothing (rocks, fences, etc. don't change daily).
+    ///
+    /// IMPORTANT: This is called BEFORE tiles are reset (dried).
+    /// Crops can check if their tile is WetDirt to determine watering status.
+    /// </summary>
+    /// <param name="location">The location containing this object (for tile state checks).</param>
+    /// <returns>True if object should be removed (dead/depleted), false to keep.</returns>
+    public virtual bool OnNewDay(GameLocation? location = null)
+    {
+        return false; // Base objects don't change
     }
 
     #region Factory Methods

@@ -195,16 +195,18 @@ public class Inventory
     /// <summary>Give starter items for new game.</summary>
     public void GiveStarterItems()
     {
-        // Tools
+        // Standard Tools (affectsTileThroughObjects: false by default)
         SetSlot(0, new Tool("hoe", "Hoe", "Tills soil for planting.", resourceCost: 2f, powerLevel: 1));
         SetSlot(1, new Tool("axe", "Axe", "Chops wood from trees.", resourceCost: 3f, powerLevel: 1));
         SetSlot(2, new Tool("pickaxe", "Pickaxe", "Breaks rocks and ore.", resourceCost: 3f, powerLevel: 1));
-        SetSlot(3, new Tool("watering_can", "Watering Can", "Waters crops.", resourceCost: 1f, powerLevel: 1));
         SetSlot(4, new Tool("scythe", "Scythe", "Harvests crops.", resourceCost: 1f, powerLevel: 1));
+
+        // Watering Tools (affectsTileThroughObjects: true - waters crop AND wets tile)
+        SetSlot(3, new Tool("watering_can", "Watering Can", "Waters crops.", resourceCost: 1f, powerLevel: 1, affectsTileThroughObjects: true));
 
         // Magic Wands
         SetSlot(5, new Tool("earth_wand", "Earth Wand", "Magically tills soil with earth energy.", resourceCost: 1f, powerLevel: 2));
-        SetSlot(6, new Tool("hydro_wand", "Hydro Wand", "Conjures water to nourish crops.", resourceCost: 1f, powerLevel: 2));
+        SetSlot(6, new Tool("hydro_wand", "Hydro Wand", "Conjures water to nourish crops.", resourceCost: 1f, powerLevel: 2, affectsTileThroughObjects: true));
 
         // Materials
         SetSlot(7, new Material("wood", "Wood", "Basic building material.", quantity: 25));

@@ -13,10 +13,10 @@ Building on the v0 engine foundation, v1 adds:
 
 ### Tools & Interaction
 - **Hoe** - Tills grass/dirt into farmable soil
-- **Pickaxe** - Breaks stone into dirt
-- **Watering Can** - Waters tilled soil
-- **Axe** - (Future: chop trees)
-- **Scythe** - (Future: harvest crops)
+- **Pickaxe** - Breaks stone into dirt, harvests mana from crystals
+- **Watering Can** - Waters tilled soil and crops (pass-through)
+- **Axe** - Chops trees into stumps, removes stumps
+- **Scythe** - Harvests mature crops into inventory items
 
 ### Magic Wands
 - **Earth Wand** - Magically tills soil (like Hoe, lower resource cost)
@@ -84,7 +84,11 @@ MagicVille/
 ├── TimeManager.cs      # Global time system and day/night cycle
 ├── TransitionManager.cs # Location transition fade effects
 ├── Warp.cs             # Warp point data structure
-├── WorldObject.cs      # World objects (rocks, trees) with collision
+├── WorldObject.cs      # Base world object with polymorphic OnNewDay()
+├── Crop.cs             # Crop subclass with growth stages
+├── Tree.cs             # Tree subclass with growth/stump mechanics
+├── ManaNode.cs         # Mana crystal with daily recharge
+├── Bed.cs              # Furniture for sleeping and day advancement
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
 ├── TileSaveData.cs     # Serializable modified tile data
@@ -122,7 +126,79 @@ MagicVille/
 
 ## Version History
 
-### v2.4 - Multi-Location System (Current)
+### v2.7 - Harvest System (Current)
+
+**Data-Driven Crop Harvesting**
+- `Crop.HarvestItemId`: Defines which item drops on harvest (e.g., "tomato")
+- `Crop.HarvestQuantity`: How many items drop per harvest
+- `Crop.Regrows`: Whether crop regrows after harvest (tomatoes) or must be replanted (corn)
+- `Crop.HarvestResetStage`: Which growth stage to reset to after harvest (for regrowable crops)
+- `Crop.GetHarvestDrop()`: Factory method creates Material item from harvest data
+
+**Harvest Transaction System** (`WorldManager.TryHarvestCrop`)
+1. Check `crop.ReadyToHarvest` (must be Mature stage)
+2. Create reward item via `GetHarvestDrop()`
+3. Try to add to inventory: `Player.Inventory.AddItem(reward)`
+4. **Success**: Remove crop OR reset for regrowth
+5. **Fail (Inventory Full)**: Do NOT modify crop, player can try again
+
+**Crop Types**
+| Crop | Days to Mature | Harvest Qty | Regrows? |
+|------|----------------|-------------|----------|
+| Corn | 6 days | 2 | No |
+| Tomato | 6 days | 3 | Yes (→ Growing) |
+| Potato | 9 days | 4 | No |
+
+**Hotbar Item Colors**
+- Harvest items display with crop-specific colors (yellow corn, red tomato, tan potato)
+
+### v2.6 - Smart Alignment & Crop Fix
+
+**Smart Object Alignment System**
+- Objects now use intelligent tile placement based on height
+- Small/flat objects (Height ≤ 64px): Centered vertically on tile
+- Tall objects (Height > 64px): Aligned to bottom of tile
+- `GetAlignedPosition(tileX, tileY, width, height)` helper in WorldManager
+
+**Coordinate System Bridge**
+- `WorldObject.GetGridPosition()`: Converts world pixels → tile grid coordinates
+- Essential for bridging "Visual World" (pixels) and "Data World" (tile lookups)
+- `GridX` and `GridY` convenience properties on all WorldObjects
+
+**Tool Pass-Through System**
+- `Tool.AffectsTileThroughObjects` property for scalable tool behavior
+- Watering Can/Hydro Wand: `true` - waters crop AND wets underlying tile
+- Pickaxe/Axe/Scythe: `false` - stops at object, doesn't affect tile
+- Future-proof: Sprinklers and magic staffs just set this flag
+
+**Critical Bug Fix: Crop Growth**
+- Fixed order of operations in `OnDayPassed()` (Two-Pass System):
+  - **Pass 1 - Growth Phase**: Process objects while tiles are STILL WET
+  - **Pass 2 - Evaporation Phase**: Dry tiles AFTER objects processed
+- Crops now check underlying tile state (`WetDirt`) in addition to `WasWateredToday` flag
+- Verbose debug logging for crop state tracking
+
+**Wet Tile Rendering**
+- Tiles drawn in `WorldManager.DrawTiles()` with wet state visual tint
+- `WetDirt` tiles get LightSteelBlue color overlay (40% blend)
+- Clear visual feedback when soil is watered
+
+### v2.5 - New Day Simulation
+- **Polymorphic WorldObject**: Virtual `OnNewDay()` method for daily updates
+- **Crop System**: Seeds grow through stages (Seed -> Sprout -> Growing -> Mature)
+  - Requires daily watering to grow, dies after 3 days without water
+  - Harvest mature crops with Scythe
+- **Tree System**: Saplings grow to Young -> Mature over days
+  - Axe chops mature trees into stumps, stumps can regrow
+- **ManaNode System**: Magical crystals with daily recharge
+  - Harvest with Pickaxe, depleted nodes recharge 1 charge per day
+  - Types: Arcane (blue), Fire (red), Nature (green)
+- **Bed & Sleep**: Click bed in Cabin to save game and advance to next day
+- **Global State Reset**: Wet soil dries overnight -> tilled soil
+- **Time Persistence**: Day and TimeOfDay saved/loaded
+- **Object Persistence**: World objects serialized with polymorphic JSON
+
+### v2.4 - Multi-Location System
 - **Location Dictionary**: Multiple maps kept in memory for state persistence
 - **Warp System**: Step on trigger zones to teleport between locations
 - **Fade Transitions**: Screen fades to black during location changes
@@ -177,7 +253,10 @@ MagicVille/
 
 ## What's NOT Built Yet (Future Versions)
 
-- Crops and farming cycle
+- Seed items and planting system (currently crops spawn pre-planted)
+- Item drops from trees (wood) and rocks (stone)
+- Item Database for centralized item definitions
+- Player energy/stamina system
 - NPCs and dialogue
 - Sound effects and music
 - RenderTarget-based lighting (v3)

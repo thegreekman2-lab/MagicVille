@@ -32,6 +32,12 @@ public static class TimeManager
     /// </summary>
     public static event Action<int>? OnTenMinutesPassed;
 
+    /// <summary>
+    /// Fired when a new day starts. Parameter is the new Day number.
+    /// Use this for OnNewDay() processing (crops, trees, mana nodes, etc.).
+    /// </summary>
+    public static event Action<int>? OnDayChanged;
+
     // 7 real-world seconds = 10 in-game minutes
     private const float SecondsPerTenMinutes = 7f;
 
@@ -84,6 +90,7 @@ public static class TimeManager
         {
             Day++;
             TimeOfDay = 600;
+            OnDayChanged?.Invoke(Day);
         }
     }
 
@@ -132,9 +139,26 @@ public static class TimeManager
         }
     }
 
+    // === Lighting Constants (Alpha Scaling Approach) ===
+    // Fixed base colors - RGB stays constant, only alpha changes
+    // This prevents muddy brown artifacts from Color.Lerp interpolation
+
+    /// <summary>Sunset base color (bright warm orange).</summary>
+    private static readonly Color SunsetBase = new Color(255, 100, 50);  // Bright orange
+
+    /// <summary>Night base color (deep blue).</summary>
+    private static readonly Color NightBase = new Color(20, 30, 80);     // Deep blue
+
+    /// <summary>Maximum sunset overlay opacity (0.0 - 1.0).</summary>
+    private const float MaxSunsetOpacity = 0.35f;
+
+    /// <summary>Maximum night overlay opacity (0.0 - 1.0).</summary>
+    private const float MaxNightOpacity = 0.5f;
+
     /// <summary>
-    /// Get the overlay color for rendering the night filter.
-    /// Returns a semi-transparent tint to apply over the world.
+    /// Get the overlay color for rendering the day/night filter.
+    /// Uses ALPHA SCALING instead of Color.Lerp to prevent muddy transitions.
+    /// RGB values stay vibrant; only alpha changes during fade-in.
     /// </summary>
     public static Color GetNightOverlayColor()
     {
@@ -146,30 +170,56 @@ public static class TimeManager
         {
             return Color.Transparent;
         }
-        // 1700 - 1900: Sunset start - Lerp from Transparent to soft Orange/Red
-        else if (t >= 1700 && t < 1900)
+
+        // 1700 - 1900: Sunset fade-in (Alpha Scaling)
+        // RGB stays constant (bright orange), only alpha increases
+        if (t >= 1700 && t < 1900)
         {
-            float progress = (t - 1700) / 200f;
-            // Soft, low-alpha orange/red sunset glow
-            int alpha = (int)(progress * 80);
-            return new Color(255, 100, 50, alpha);
+            float progress = (t - 1700) / 200f;  // 0.0 -> 1.0
+            float alpha = progress * MaxSunsetOpacity;
+
+            // Alpha scaling: multiply base color by alpha (keeps RGB vibrant)
+            return new Color(
+                (int)(SunsetBase.R * alpha),
+                (int)(SunsetBase.G * alpha),
+                (int)(SunsetBase.B * alpha),
+                (int)(alpha * 255)
+            );
         }
-        // 1900 - 2000: Dusk - Lerp from Orange to Dark Blue
-        else if (t >= 1900 && t < 2000)
+
+        // 1900 - 2100: Dusk transition (Sunset -> Night)
+        // Lerp between two properly-opaque colors (both at their max opacity)
+        if (t >= 1900 && t < 2100)
         {
-            float progress = (t - 1900) / 100f;
-            // Blend from sunset orange to night blue
-            int r = (int)(255 - progress * 225);  // 255 -> 30
-            int g = (int)(100 - progress * 60);   // 100 -> 40
-            int b = (int)(50 + progress * 70);    // 50 -> 120
-            int alpha = (int)(80 + progress * 40); // 80 -> 120
-            return new Color(r, g, b, alpha);
+            float progress = (t - 1900) / 200f;  // 0.0 -> 1.0
+
+            // Create the sunset color at max opacity
+            var sunsetAtMax = new Color(
+                (int)(SunsetBase.R * MaxSunsetOpacity),
+                (int)(SunsetBase.G * MaxSunsetOpacity),
+                (int)(SunsetBase.B * MaxSunsetOpacity),
+                (int)(MaxSunsetOpacity * 255)
+            );
+
+            // Create the night color at max opacity
+            var nightAtMax = new Color(
+                (int)(NightBase.R * MaxNightOpacity),
+                (int)(NightBase.G * MaxNightOpacity),
+                (int)(NightBase.B * MaxNightOpacity),
+                (int)(MaxNightOpacity * 255)
+            );
+
+            // Lerp between two equally-opaque colors (no muddy transition)
+            return Color.Lerp(sunsetAtMax, nightAtMax, progress);
         }
-        // 2000 - 0600: Night - dark blue overlay
-        else
-        {
-            return new Color(30, 40, 120, 120);
-        }
+
+        // 2100 - 0600: Full night
+        return new Color(
+            (int)(NightBase.R * MaxNightOpacity),
+            (int)(NightBase.G * MaxNightOpacity),
+            (int)(NightBase.B * MaxNightOpacity),
+            (int)(MaxNightOpacity * 255)
+        );
     }
 
     /// <summary>
@@ -202,5 +252,28 @@ public static class TimeManager
         TimeOfDay = 600;
         Accumulator = 0f;
         IsPaused = false;
+    }
+
+    /// <summary>
+    /// Force start a new day (used when player sleeps in bed).
+    /// Sets time to 6 AM and fires OnDayChanged event.
+    /// </summary>
+    public static void StartNewDay()
+    {
+        Day++;
+        TimeOfDay = 600;
+        Accumulator = 0f;
+        OnDayChanged?.Invoke(Day);
+    }
+
+    /// <summary>
+    /// Set time and day directly (used when loading saved games).
+    /// Does NOT fire OnDayChanged (loading should restore state, not advance it).
+    /// </summary>
+    public static void SetTime(int day, int timeOfDay)
+    {
+        Day = day;
+        TimeOfDay = timeOfDay;
+        Accumulator = 0f;
     }
 }
