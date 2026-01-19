@@ -18,8 +18,9 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Core Game Loop
 - **Program.cs**: Entry point
-- **Game1.cs**: MonoGame Game class, handles window resize events
+- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory)
 - **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
+- **InventoryMenu.cs**: Inventory UI with drag-and-drop (View-Model pattern)
 
 ### World & Tiles
 - **GameLocation.cs**: Tile map container with name, tiles, and warp points
@@ -69,6 +70,56 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 > **TODO**: Sunset colors need artistic tuning. v3 will use RenderTarget-based lighting for proper color grading.
 
 ## Key Patterns
+
+### Game State FSM (v2.8)
+High-level game flow control using Finite State Machine:
+```csharp
+public enum GameState { Playing, Inventory }
+public GameState CurrentState { get; private set; }
+
+protected override void Update(GameTime gameTime)
+{
+    switch (CurrentState)
+    {
+        case GameState.Playing:
+            // World updates, player moves, time passes
+            // E/Tab → transition to Inventory
+            _world.Update(gameTime);
+            break;
+
+        case GameState.Inventory:
+            // World PAUSED (frozen background)
+            // Only UI updates (drag-and-drop)
+            // E/Tab/Esc → transition to Playing
+            _inventoryMenu.Update(Mouse.GetState());
+            break;
+    }
+}
+```
+
+### Inventory UI - View-Model Pattern (v2.8)
+```csharp
+public class InventoryMenu
+{
+    // VIEW: References MODEL, doesn't store its own copy
+    private readonly Player _player;
+    private Inventory PlayerInventory => _player.Inventory;
+
+    // Drag-and-drop state
+    private Item? _heldItem;
+    private int _sourceIndex = -1;
+
+    // OnMouseDown: Pick up item
+    _heldItem = PlayerInventory.GetSlot(slotIndex);
+    PlayerInventory.SetSlot(slotIndex, null);
+
+    // OnMouseUp: Place or snap-back
+    if (targetIndex >= 0)
+        PlayerInventory.SetSlot(targetIndex, _heldItem); // Swap
+    else
+        PlayerInventory.SetSlot(_sourceIndex, _heldItem); // Snap-back
+}
+```
 
 ### Tool Interaction Flow
 1. `InputManager.GetMouseTilePosition(camera)` converts screen → tile coordinates
@@ -252,10 +303,12 @@ spriteBatch.Draw(texture, Position, sourceRect, color, 0f, origin, scale, Sprite
   3. UI (screen space, unaffected by night filter)
   4. Transition fade (screen space, covers everything during warp)
 
-## Debug Controls
+## Controls
 
 | Key | Action |
 |-----|--------|
+| E / Tab | Open/close inventory menu |
+| Escape | Close inventory menu |
 | K | Save game to `debug_save.json` |
 | L | Load game from `debug_save.json` |
 | F3 | Toggle collision box visualization (red borders) |

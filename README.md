@@ -58,6 +58,8 @@ dotnet run        # Run the game
 | 1-9, 0 | Select hotbar slot 1-10 |
 | Scroll Wheel | Cycle hotbar slots |
 | Left Click | Use selected tool on tile |
+| E / Tab | Open/close inventory menu |
+| Escape | Close inventory menu |
 | K | Save game |
 | L | Load game |
 | F3 | Toggle collision debug visualization |
@@ -69,8 +71,9 @@ dotnet run        # Run the game
 ```
 MagicVille/
 ├── Program.cs          # Entry point
-├── Game1.cs            # MonoGame Game class (window resize handling)
+├── Game1.cs            # MonoGame Game class with FSM state management
 ├── WorldManager.cs     # Orchestrates game state, update, draw, tool interaction
+├── InventoryMenu.cs    # Inventory UI with drag-and-drop
 ├── GameLocation.cs     # Tile map with random generation
 ├── Tile.cs             # Tile types (Grass, Dirt, Water, Stone, WetDirt, Tilled)
 ├── Player.cs           # Player entity with movement and sprite animation
@@ -126,7 +129,33 @@ MagicVille/
 
 ## Version History
 
-### v2.7 - Harvest System (Current)
+### v2.8 - Inventory UI & Game States (Current)
+
+**Game State FSM** (`Game1.cs`)
+- `GameState` enum: `Playing`, `Inventory`
+- FSM-based Update loop routes input to active system only
+- `Playing`: World/player update, E/Tab opens inventory
+- `Inventory`: World paused (frozen background), UI-only updates
+
+**Inventory Menu** (`InventoryMenu.cs`)
+- **View-Model Separation**: References `Player.Inventory`, no data duplication
+- **Drag-and-Drop**: Pick up items, swap between slots, snap-back on invalid drop
+- **Input Mode Controller**: Prevents click-through to world while menu open
+- Render order: Background → Slots → Items → Tooltip → Held Item (at cursor)
+
+**Visual Polish**
+- Pulsing "PAUSED" indicator (Yellow, 3x scale, sine wave animation)
+- Dimmed background overlay (semi-transparent black)
+- Slot hover highlights (light blue) and selection indicators (white border)
+- Tooltips with full item names following mouse cursor
+- Scaled pixel font (2x) for readability
+
+**Pixel Font System**
+- Full uppercase A-Z, lowercase a-z, digits 0-9
+- Punctuation: `.,:;!?-+='"/()[]`
+- Scalable rendering (1x for slots, 2x for tooltips, 3x for PAUSED)
+
+### v2.7 - Harvest System
 
 **Data-Driven Crop Harvesting**
 - `Crop.HarvestItemId`: Defines which item drops on harvest (e.g., "tomato")
