@@ -33,9 +33,47 @@ public class Player : IRenderable
     // Player currency
     public int Gold { get; set; } = 500;
 
+    #region Stats
+
+    /// <summary>Maximum stamina (energy) capacity.</summary>
+    public float MaxStamina { get; private set; } = 100f;
+
+    /// <summary>Current stamina level. Depletes with tool use, restores on sleep.</summary>
+    public float CurrentStamina { get; set; }
+
+    /// <summary>
+    /// Attempt to use stamina for an action.
+    /// </summary>
+    /// <param name="cost">Stamina cost of the action.</param>
+    /// <returns>True if action succeeded (enough stamina), false if too tired.</returns>
+    public bool TryUseStamina(float cost)
+    {
+        if (cost <= 0f)
+            return true; // Free actions always succeed
+
+        if (CurrentStamina >= cost)
+        {
+            CurrentStamina -= cost;
+            return true;
+        }
+
+        return false; // Too tired!
+    }
+
+    /// <summary>
+    /// Fully restore stamina (called on sleep/new day).
+    /// </summary>
+    public void RestoreStamina()
+    {
+        CurrentStamina = MaxStamina;
+    }
+
+    #endregion
+
     public Player(Vector2 startPosition)
     {
         Position = startPosition;
+        CurrentStamina = MaxStamina; // Start fully rested
         Inventory.GiveStarterItems();
     }
 

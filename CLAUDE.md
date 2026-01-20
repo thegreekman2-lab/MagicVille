@@ -36,8 +36,15 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - State preserved when switching locations (no save/load needed for doors)
 
 ### Player & Animation
-- **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position
+- **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position, stamina system
 - **SpriteAnimator.cs**: Handles spritesheet animation with direction-based rows (Down, Up, Left, Right)
+
+### Stamina System (v2.10)
+- **Player.MaxStamina**: Maximum energy capacity (default 100)
+- **Player.CurrentStamina**: Current energy level, depletes with tool use
+- **Player.TryUseStamina(cost)**: Returns true if enough stamina, deducts cost
+- **Recovery**: Full stamina restore on sleep/new day
+- **Persistence**: CurrentStamina saved/loaded to prevent save scumming
 
 ### World Objects & Rendering
 - **WorldObject.cs**: Physical objects (rocks, trees, bushes, mana nodes) with collision
@@ -48,9 +55,18 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Item System (Polymorphic)
 - **Item.cs**: Abstract base class with `[JsonPolymorphic]` for serialization
-- **Tool.cs**: Tools with ResourceCost, PowerLevel, AffectsTileThroughObjects (Hoe, Axe, Pickaxe, Watering Can, Scythe, Earth Wand, Hydro Wand)
+- **Tool.cs**: Tools with ResourceCost, PowerLevel, StaminaCost, AffectsTileThroughObjects
 - **Material.cs**: Stackable items with Quantity and MaxStack (Wood, Stone, Corn, Tomato, etc.)
 - **Inventory.cs**: 10-slot hotbar with stacking logic, slot selection, and `AddItem()` returns bool for full inventory handling
+
+**Tool Stamina Costs (v2.10):**
+| Tool | Stamina Cost |
+|------|-------------|
+| Pickaxe / Axe | 4 (heavy work) |
+| Hoe | 3 |
+| Watering Can | 2 |
+| Magic Wands | 1 (efficient) |
+| Scythe | 0 (free) |
 
 ### Input & Interaction
 - **InputManager.cs**: Mouse/keyboard state tracking, screen-to-world coordinate conversion

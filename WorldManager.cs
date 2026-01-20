@@ -192,6 +192,13 @@ public class WorldManager
         ProcessNightlyShipments();
 
         // ═══════════════════════════════════════════════════════════════════
+        // RECOVERY: Player wakes up fully rested
+        // ═══════════════════════════════════════════════════════════════════
+        float oldStamina = Player.CurrentStamina;
+        Player.RestoreStamina();
+        Debug.WriteLine($"[WorldManager] Stamina restored: {oldStamina:F1} → {Player.CurrentStamina:F1}");
+
+        // ═══════════════════════════════════════════════════════════════════
         // PASS 1: THE GROWTH PHASE
         // Process all objects WHILE TILES ARE STILL WET
         // Crops can check tile state and grow accordingly
@@ -719,6 +726,18 @@ public class WorldManager
     /// </summary>
     private void InteractWithTile(Point tileCoords, Tool tool)
     {
+        // STEP 0: Check stamina cost (skip free actions)
+        if (tool.StaminaCost > 0f)
+        {
+            if (!Player.TryUseStamina(tool.StaminaCost))
+            {
+                Debug.WriteLine($"[{tool.Name}] Too tired! Need {tool.StaminaCost} stamina (have {Player.CurrentStamina:F1})");
+                // TODO: Play "buzzer/error" sound effect
+                return;
+            }
+            Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+        }
+
         // STEP 1: Check for world object at this tile
         var targetObject = GetObjectAtTile(tileCoords);
 
@@ -1090,7 +1109,7 @@ public class WorldManager
     };
 
     /// <summary>
-    /// Draw UI layer (hotbar, clock) in screen space.
+    /// Draw UI layer (hotbar, clock, stamina) in screen space.
     /// Call this last in the render pipeline, after any overlays.
     /// </summary>
     public void DrawUI(SpriteBatch spriteBatch)
@@ -1103,6 +1122,7 @@ public class WorldManager
 
         DrawHotbar(spriteBatch);
         DrawClock(spriteBatch);
+        DrawStaminaBar(spriteBatch);
 
         spriteBatch.End();
     }
@@ -1357,6 +1377,73 @@ public class WorldManager
     }
 
     /// <summary>
+    /// Draw the stamina/energy bar in the bottom-right corner.
+    /// Vertical bar with color gradient: Green > 50%, Yellow 20-50%, Red < 20%.
+    /// </summary>
+    private void DrawStaminaBar(SpriteBatch spriteBatch)
+    {
+        var viewport = _graphicsDevice.Viewport;
+
+        // Bar dimensions and position
+        const int barWidth = 20;
+        const int barHeight = 100;
+        const int margin = 20;
+        const int borderWidth = 2;
+
+        int barX = viewport.Width - barWidth - margin;
+        int barY = viewport.Height - barHeight - margin;
+
+        // Background (black border)
+        var borderRect = new Rectangle(barX - borderWidth, barY - borderWidth, barWidth + borderWidth * 2, barHeight + borderWidth * 2);
+        spriteBatch.Draw(_pixel, borderRect, new Color(20, 20, 20));
+
+        // Inner background (dark gray)
+        var bgRect = new Rectangle(barX, barY, barWidth, barHeight);
+        spriteBatch.Draw(_pixel, bgRect, new Color(40, 40, 50));
+
+        // Calculate fill percentage
+        float staminaPercent = Player.CurrentStamina / Player.MaxStamina;
+        int fillHeight = (int)(barHeight * staminaPercent);
+
+        // Color based on percentage: Green > 50%, Yellow 20-50%, Red < 20%
+        Color fillColor;
+        if (staminaPercent > 0.5f)
+            fillColor = new Color(50, 200, 50);   // Green - healthy
+        else if (staminaPercent > 0.2f)
+            fillColor = new Color(220, 200, 50);  // Yellow - caution
+        else
+            fillColor = new Color(200, 50, 50);   // Red - exhausted
+
+        // Draw fill (bottom-up)
+        if (fillHeight > 0)
+        {
+            var fillRect = new Rectangle(barX, barY + (barHeight - fillHeight), barWidth, fillHeight);
+            spriteBatch.Draw(_pixel, fillRect, fillColor);
+        }
+
+        // Draw border
+        DrawRectBorder(spriteBatch, borderRect, new Color(100, 100, 100));
+
+        // Tooltip on hover
+        var mouseState = Input.GetMouseState();
+        if (borderRect.Contains(mouseState.Position))
+        {
+            string tooltipText = $"Energy: {(int)Player.CurrentStamina}/{(int)Player.MaxStamina}";
+            int tooltipWidth = tooltipText.Length * 6 + 10;
+            int tooltipX = barX - tooltipWidth - 5;
+            int tooltipY = barY + barHeight / 2 - 10;
+
+            // Tooltip background
+            var tooltipRect = new Rectangle(tooltipX, tooltipY, tooltipWidth, 16);
+            spriteBatch.Draw(_pixel, tooltipRect, new Color(0, 0, 0, 200));
+            DrawRectBorder(spriteBatch, tooltipRect, new Color(100, 100, 100));
+
+            // Tooltip text
+            DrawPixelText(spriteBatch, tooltipText, tooltipX + 5, tooltipY + 4, Color.White);
+        }
+    }
+
+    /// <summary>
     /// Simple pixel-based text rendering for digits and basic characters.
     /// Each character is 5x7 pixels with 1px spacing.
     /// </summary>
@@ -1520,6 +1607,7 @@ public class WorldManager
             PlayerPositionY = Player.Position.Y,
             PlayerName = Player.Name,
             PlayerGold = Player.Gold,
+            PlayerStamina = Player.CurrentStamina,
             CurrentLocationName = CurrentLocationName,
             WorldSeed = WorldSeed,
             Day = TimeManager.Day,
@@ -1597,11 +1685,12 @@ public class WorldManager
         Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
         Player.Name = data.PlayerName;
         Player.Gold = data.PlayerGold;
+        Player.CurrentStamina = data.PlayerStamina;
         Player.Inventory.LoadFromSaveList(data.InventorySlots);
         Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
 
         Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName}");
-        Debug.WriteLine($"[WorldManager] Restored player gold: {Player.Gold}g");
+        Debug.WriteLine($"[WorldManager] Restored player gold: {Player.Gold}g, stamina: {Player.CurrentStamina:F1}");
     }
 
     /// <summary>

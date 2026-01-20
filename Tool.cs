@@ -9,11 +9,17 @@ public class Tool : Item
     public override bool IsStackable => false;
     public override string RegistryKey { get; init; } = "";
 
-    /// <summary>Resource cost per use (stamina, mana, or hybrid).</summary>
+    /// <summary>Resource cost per use (mana or hybrid - legacy).</summary>
     public float ResourceCost { get; init; }
 
     /// <summary>Effectiveness level (upgradeable).</summary>
     public int PowerLevel { get; set; }
+
+    /// <summary>
+    /// Stamina (energy) cost per use.
+    /// Standard costs: Watering Can = 2, Hoe = 3, Pickaxe/Axe = 4, Scythe = 0.
+    /// </summary>
+    public float StaminaCost { get; init; } = 0f;
 
     /// <summary>
     /// Whether this tool affects the underlying tile even when an object is present.
@@ -30,12 +36,13 @@ public class Tool : Item
     // Parameterless constructor for JSON deserialization
     public Tool() { }
 
-    public Tool(string registryKey, string name, string description, float resourceCost, int powerLevel, bool affectsTileThroughObjects = false)
+    public Tool(string registryKey, string name, string description, float resourceCost, int powerLevel, bool affectsTileThroughObjects = false, float staminaCost = 0f)
         : base(name, description, sellPrice: -1) // Tools are never sellable
     {
         RegistryKey = registryKey;
         ResourceCost = resourceCost;
         PowerLevel = powerLevel;
         AffectsTileThroughObjects = affectsTileThroughObjects;
+        StaminaCost = staminaCost;
     }
 }

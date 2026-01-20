@@ -131,7 +131,35 @@ MagicVille/
 
 ## Version History
 
-### v2.9 - Economy Loop (Current)
+### v2.10 - Stamina System (Current)
+
+**Player Energy**
+- **MaxStamina**: 100 energy capacity (upgradeable in future)
+- **CurrentStamina**: Depletes with tool use, persisted across saves
+- **TryUseStamina(cost)**: Gate check - returns false if too tired
+- **Recovery**: Full restore on sleep/new day
+
+**Tool Stamina Costs**
+| Tool | Cost | Notes |
+|------|------|-------|
+| Pickaxe | 4 | Heavy work |
+| Axe | 4 | Heavy work |
+| Hoe | 3 | Moderate |
+| Watering Can | 2 | Light work |
+| Earth Wand | 1 | Magic efficiency |
+| Hydro Wand | 1 | Magic efficiency |
+| Scythe | 0 | Free harvesting |
+
+**Stamina Bar UI**
+- Vertical bar in bottom-right corner (20x100px)
+- Color gradient: Green > 50%, Yellow 20-50%, Red < 20%
+- Hover tooltip shows "Energy: X/100"
+
+**Anti-Save-Scum**
+- Stamina persisted in `SaveData.PlayerStamina`
+- Cannot reload to restore energy
+
+### v2.9 - Economy Loop
 
 **Player Economy**
 - **Gold System**: Player starts with 500g, saved/loaded with game state
