@@ -31,7 +31,7 @@ public class Tool : Item
     public Tool() { }
 
     public Tool(string registryKey, string name, string description, float resourceCost, int powerLevel, bool affectsTileThroughObjects = false)
-        : base(name, description)
+        : base(name, description, sellPrice: -1) // Tools are never sellable
     {
         RegistryKey = registryKey;
         ResourceCost = resourceCost;

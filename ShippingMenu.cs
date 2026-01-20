@@ -8,20 +8,18 @@ using Microsoft.Xna.Framework.Input;
 namespace MagicVille;
 
 /// <summary>
-/// Inventory menu UI with drag-and-drop functionality.
+/// Shipping menu UI for selling items (Stardew Valley style).
 ///
 /// ARCHITECTURE:
-/// - View-Model Separation: References Player.Inventory, doesn't store its own copy
-/// - Input Mode Controller: Only active when GameState == Inventory (no click-through)
-/// - Drag-and-Drop: Full pick-up, swap, and snap-back protection
+/// - View-Model Separation: References Player.Inventory
+/// - Bin Slot: Acts as "undo buffer" - last item can be retrieved
+/// - On close: Bin Slot item is finalized to shipping manifest
 ///
-/// RENDER ORDER:
-/// 1. Background/Slots
-/// 2. Items in Slots (except held item)
-/// 3. Tooltip (hovered item name)
-/// 4. Held Item at mouse position (floats above everything)
+/// LAYOUT:
+/// - Top: Large "Bin Slot" for dropping items to sell
+/// - Bottom: Player's inventory for dragging items from
 /// </summary>
-public class InventoryMenu
+public class ShippingMenu
 {
     // === View-Model binding ===
     private readonly Player _player;
@@ -36,21 +34,27 @@ public class InventoryMenu
     private const int SlotPadding = 6;
     private const int SlotBorder = 3;
     private const int ItemInset = 8;
-    private const int HotbarY = 120; // Distance from bottom
+    private const int BinSlotSize = 80;
 
-    // === Slot rectangles (computed on draw) ===
-    private readonly Rectangle[] _slotRects = new Rectangle[Inventory.HotbarSize];
+    // === Slot rectangles ===
+    private readonly Rectangle[] _inventorySlotRects = new Rectangle[Inventory.HotbarSize];
+    private Rectangle _binSlotRect;
+
+    // === Bin Slot State (Undo Buffer) ===
+    private Item? _binSlotItem;
+    private ShippingBin? _activeBin;
 
     // === Drag-and-Drop state ===
     private Item? _heldItem;
-    private int _sourceIndex = -1;
+    private int _sourceIndex = -1; // -1 = none, -2 = from bin slot, 0-9 = from inventory
     private bool _isDragging;
 
     // === Mouse state tracking ===
     private MouseState _previousMouse;
-    private int _hoveredSlot = -1;
+    private int _hoveredInventorySlot = -1;
+    private bool _hoveringBinSlot;
 
-    public InventoryMenu(Player player, Texture2D pixel, GraphicsDevice graphics)
+    public ShippingMenu(Player player, Texture2D pixel, GraphicsDevice graphics)
     {
         _player = player;
         _pixel = pixel;
@@ -58,13 +62,60 @@ public class InventoryMenu
     }
 
     /// <summary>
+    /// Open the shipping menu for a specific bin.
+    /// </summary>
+    public void Open(ShippingBin bin)
+    {
+        _activeBin = bin;
+        _binSlotItem = null;
+        _heldItem = null;
+        _sourceIndex = -1;
+        _isDragging = false;
+        Debug.WriteLine("[ShippingMenu] Opened for shipping bin");
+    }
+
+    /// <summary>
+    /// Finalize shipping and close the menu.
+    /// Moves bin slot item to the shipping manifest.
+    /// </summary>
+    public void FinalizeAndClose(ShippingBin? bin)
+    {
+        // If there's an item in the bin slot, ship it
+        if (_binSlotItem != null && bin != null)
+        {
+            bin.ShipItem(_binSlotItem);
+            Debug.WriteLine($"[ShippingMenu] Finalized bin slot item");
+            _binSlotItem = null;
+        }
+
+        // If holding an item, return it to source
+        if (_isDragging && _heldItem != null)
+        {
+            if (_sourceIndex >= 0)
+            {
+                PlayerInventory.SetSlot(_sourceIndex, _heldItem);
+            }
+            else if (_sourceIndex == -2)
+            {
+                // Was from bin slot, put back
+                _binSlotItem = _heldItem;
+            }
+            _heldItem = null;
+            _isDragging = false;
+        }
+
+        _activeBin = null;
+        Debug.WriteLine("[ShippingMenu] Closed");
+    }
+
+    /// <summary>
     /// Update drag-and-drop logic.
-    /// Called only when GameState == Inventory.
     /// </summary>
     public void Update(MouseState mouse)
     {
-        // Update hovered slot
-        _hoveredSlot = GetSlotAtPosition(mouse.Position);
+        // Update hovered states
+        _hoveredInventorySlot = GetInventorySlotAtPosition(mouse.Position);
+        _hoveringBinSlot = _binSlotRect.Contains(mouse.Position);
 
         // Handle mouse input
         bool mouseDown = mouse.LeftButton == ButtonState.Pressed;
@@ -85,32 +136,36 @@ public class InventoryMenu
     }
 
     /// <summary>
-    /// Handle mouse button press - pick up item from slot.
+    /// Handle mouse button press - pick up item.
     /// </summary>
     private void OnMouseDown(Point mousePos)
     {
-        int slotIndex = GetSlotAtPosition(mousePos);
-
-        // Not clicking on a slot
-        if (slotIndex < 0)
+        // Check if clicking on bin slot
+        if (_binSlotRect.Contains(mousePos) && _binSlotItem != null)
+        {
+            // Pick up from bin slot (undo)
+            _heldItem = _binSlotItem;
+            _binSlotItem = null;
+            _sourceIndex = -2; // Special index for bin slot
+            _isDragging = true;
+            Debug.WriteLine($"[ShippingMenu] Picked up from bin slot: {_heldItem.Name}");
             return;
+        }
 
-        // Get item at this slot
-        Item? item = PlayerInventory.GetSlot(slotIndex);
-
-        // No item to pick up
-        if (item == null)
-            return;
-
-        // Pick up the item
-        _heldItem = item;
-        _sourceIndex = slotIndex;
-        _isDragging = true;
-
-        // Remove from inventory (will be placed back on mouse up)
-        PlayerInventory.SetSlot(slotIndex, null);
-
-        Debug.WriteLine($"[InventoryMenu] Picked up {item.Name} from slot {slotIndex}");
+        // Check if clicking on inventory slot
+        int slotIndex = GetInventorySlotAtPosition(mousePos);
+        if (slotIndex >= 0)
+        {
+            Item? item = PlayerInventory.GetSlot(slotIndex);
+            if (item != null)
+            {
+                _heldItem = item;
+                _sourceIndex = slotIndex;
+                _isDragging = true;
+                PlayerInventory.SetSlot(slotIndex, null);
+                Debug.WriteLine($"[ShippingMenu] Picked up from slot {slotIndex}: {item.Name}");
+            }
+        }
     }
 
     /// <summary>
@@ -118,80 +173,112 @@ public class InventoryMenu
     /// </summary>
     private void OnMouseUp(Point mousePos)
     {
-        // Not dragging anything
         if (!_isDragging || _heldItem == null)
             return;
 
-        int targetIndex = GetSlotAtPosition(mousePos);
-
-        if (targetIndex >= 0)
+        // Check if dropping on bin slot
+        if (_binSlotRect.Contains(mousePos))
         {
-            // Valid target slot - swap or place
-            Item? targetItem = PlayerInventory.GetSlot(targetIndex);
+            // Check if item is sellable
+            if (!_heldItem.IsSellable)
+            {
+                Debug.WriteLine($"[ShippingMenu] Cannot sell {_heldItem.Name} (not sellable)");
+                // Return to source
+                ReturnHeldItemToSource();
+                return;
+            }
 
-            // Place held item in target slot
-            PlayerInventory.SetSlot(targetIndex, _heldItem);
+            // If bin slot has an item, finalize it first (push system)
+            if (_binSlotItem != null && _activeBin != null)
+            {
+                _activeBin.ShipItem(_binSlotItem);
+                Debug.WriteLine("[ShippingMenu] Auto-finalized previous item");
+            }
 
-            // If target had an item, put it in source slot (swap)
-            if (targetItem != null)
+            // Place held item in bin slot
+            _binSlotItem = _heldItem;
+            int value = _heldItem.SellPrice * (_heldItem is Material m ? m.Quantity : 1);
+            Debug.WriteLine($"[ShippingMenu] Added to bin: {_heldItem.Name} ({value}g)");
+
+            _heldItem = null;
+            _sourceIndex = -1;
+            _isDragging = false;
+            return;
+        }
+
+        // Check if dropping on inventory slot
+        int targetSlot = GetInventorySlotAtPosition(mousePos);
+        if (targetSlot >= 0)
+        {
+            Item? targetItem = PlayerInventory.GetSlot(targetSlot);
+
+            // Place held item
+            PlayerInventory.SetSlot(targetSlot, _heldItem);
+
+            // If target had an item, pick it up (swap) or return to source
+            if (targetItem != null && _sourceIndex >= 0)
             {
                 PlayerInventory.SetSlot(_sourceIndex, targetItem);
-                Debug.WriteLine($"[InventoryMenu] Swapped {_heldItem.Name} with {targetItem.Name}");
             }
-            else
+            else if (targetItem != null && _sourceIndex == -2)
             {
-                Debug.WriteLine($"[InventoryMenu] Placed {_heldItem.Name} in slot {targetIndex}");
+                // Swapping with bin slot
+                _binSlotItem = targetItem;
             }
-        }
-        else
-        {
-            // Invalid target (outside UI) - snap back to source
-            PlayerInventory.SetSlot(_sourceIndex, _heldItem);
-            Debug.WriteLine($"[InventoryMenu] Snap-back: Returned {_heldItem.Name} to slot {_sourceIndex}");
+
+            Debug.WriteLine($"[ShippingMenu] Placed {_heldItem.Name} in slot {targetSlot}");
+
+            _heldItem = null;
+            _sourceIndex = -1;
+            _isDragging = false;
+            return;
         }
 
-        // Clear drag state
+        // Invalid drop location - return to source
+        ReturnHeldItemToSource();
+    }
+
+    /// <summary>
+    /// Return held item to its source location.
+    /// </summary>
+    private void ReturnHeldItemToSource()
+    {
+        if (_heldItem == null)
+            return;
+
+        if (_sourceIndex >= 0)
+        {
+            PlayerInventory.SetSlot(_sourceIndex, _heldItem);
+        }
+        else if (_sourceIndex == -2)
+        {
+            _binSlotItem = _heldItem;
+        }
+
+        Debug.WriteLine($"[ShippingMenu] Returned {_heldItem.Name} to source");
         _heldItem = null;
         _sourceIndex = -1;
         _isDragging = false;
     }
 
     /// <summary>
-    /// Cancel current drag operation and return item to source.
-    /// Called when closing inventory menu.
+    /// Get inventory slot at screen position.
     /// </summary>
-    public void CancelDrag()
+    private int GetInventorySlotAtPosition(Point screenPos)
     {
-        if (_isDragging && _heldItem != null && _sourceIndex >= 0)
+        for (int i = 0; i < _inventorySlotRects.Length; i++)
         {
-            PlayerInventory.SetSlot(_sourceIndex, _heldItem);
-            Debug.WriteLine($"[InventoryMenu] Drag cancelled: Returned {_heldItem.Name} to slot {_sourceIndex}");
-        }
-
-        _heldItem = null;
-        _sourceIndex = -1;
-        _isDragging = false;
-    }
-
-    /// <summary>
-    /// Get the slot index at a screen position, or -1 if not over any slot.
-    /// </summary>
-    private int GetSlotAtPosition(Point screenPos)
-    {
-        for (int i = 0; i < _slotRects.Length; i++)
-        {
-            if (_slotRects[i].Contains(screenPos))
+            if (_inventorySlotRects[i].Contains(screenPos))
                 return i;
         }
         return -1;
     }
 
     /// <summary>
-    /// Draw the inventory menu.
+    /// Draw the shipping menu.
     /// </summary>
     public void Draw(SpriteBatch spriteBatch, Viewport viewport)
     {
-        // Compute slot positions (centered at bottom)
         ComputeSlotRects(viewport);
 
         spriteBatch.Begin(
@@ -200,129 +287,148 @@ public class InventoryMenu
             samplerState: SamplerState.PointClamp
         );
 
-        // === LAYER 1: Background panel ===
-        DrawBackground(spriteBatch, viewport);
+        // === LAYER 1: Title ===
+        DrawTitle(spriteBatch, viewport);
 
-        // === LAYER 2: Slot backgrounds ===
-        DrawSlots(spriteBatch);
+        // === LAYER 2: Bin Slot (center) ===
+        DrawBinSlot(spriteBatch, viewport);
 
-        // === LAYER 3: Items in slots (except held item) ===
-        DrawItems(spriteBatch);
+        // === LAYER 3: Inventory slots (bottom) ===
+        DrawInventorySlots(spriteBatch);
 
-        // === LAYER 4: Tooltip ===
+        // === LAYER 4: Items in inventory (except held) ===
+        DrawInventoryItems(spriteBatch);
+
+        // === LAYER 5: Item in bin slot ===
+        DrawBinSlotItem(spriteBatch);
+
+        // === LAYER 6: Tooltip ===
         DrawTooltip(spriteBatch, viewport);
 
-        // === LAYER 5: Held item at mouse (floats above everything) ===
+        // === LAYER 7: Held item at mouse ===
         DrawHeldItem(spriteBatch);
+
+        // === LAYER 8: Gold display ===
+        DrawGoldDisplay(spriteBatch, viewport);
 
         spriteBatch.End();
     }
 
     /// <summary>
-    /// Compute slot rectangles based on viewport size.
+    /// Compute slot positions.
     /// </summary>
     private void ComputeSlotRects(Viewport viewport)
     {
+        // Inventory slots at bottom
         int totalWidth = Inventory.HotbarSize * (SlotSize + SlotPadding) - SlotPadding;
         int startX = (viewport.Width - totalWidth) / 2;
-        int startY = viewport.Height - HotbarY;
+        int startY = viewport.Height - 100;
 
         for (int i = 0; i < Inventory.HotbarSize; i++)
         {
             int x = startX + i * (SlotSize + SlotPadding);
-            _slotRects[i] = new Rectangle(x, startY, SlotSize, SlotSize);
+            _inventorySlotRects[i] = new Rectangle(x, startY, SlotSize, SlotSize);
+        }
+
+        // Bin slot in center-upper area
+        int binX = (viewport.Width - BinSlotSize) / 2;
+        int binY = viewport.Height / 2 - BinSlotSize - 20;
+        _binSlotRect = new Rectangle(binX, binY, BinSlotSize, BinSlotSize);
+    }
+
+    /// <summary>
+    /// Draw title.
+    /// </summary>
+    private void DrawTitle(SpriteBatch spriteBatch, Viewport viewport)
+    {
+        string title = "SHIPPING BIN";
+        int charWidth = 6 * 2; // 2x scale
+        int titleWidth = title.Length * charWidth;
+        int titleX = (viewport.Width - titleWidth) / 2;
+        int titleY = _binSlotRect.Y - 40;
+
+        DrawScaledPixelText(spriteBatch, title, titleX, titleY, Color.White, 2);
+    }
+
+    /// <summary>
+    /// Draw the bin slot.
+    /// </summary>
+    private void DrawBinSlot(SpriteBatch spriteBatch, Viewport viewport)
+    {
+        // Border color based on hover
+        Color borderColor = _hoveringBinSlot
+            ? new Color(255, 215, 0) // Gold on hover
+            : new Color(139, 90, 43); // Brown (wooden)
+
+        // Draw border
+        spriteBatch.Draw(_pixel, _binSlotRect, borderColor);
+
+        // Draw inner area
+        var innerRect = new Rectangle(
+            _binSlotRect.X + SlotBorder,
+            _binSlotRect.Y + SlotBorder,
+            _binSlotRect.Width - SlotBorder * 2,
+            _binSlotRect.Height - SlotBorder * 2
+        );
+        spriteBatch.Draw(_pixel, innerRect, new Color(60, 40, 20));
+
+        // Label
+        string label = "DROP HERE";
+        int labelWidth = label.Length * 6;
+        int labelX = _binSlotRect.X + (_binSlotRect.Width - labelWidth) / 2;
+        int labelY = _binSlotRect.Bottom + 8;
+        DrawScaledPixelText(spriteBatch, label, labelX, labelY, new Color(180, 180, 180), 1);
+
+        // Show shipping manifest count
+        if (_activeBin != null && _activeBin.ShippingManifest.Count > 0)
+        {
+            string countText = $"{_activeBin.ShippingManifest.Count} shipped";
+            int countWidth = countText.Length * 6;
+            int countX = _binSlotRect.X + (_binSlotRect.Width - countWidth) / 2;
+            int countY = labelY + 14;
+            DrawScaledPixelText(spriteBatch, countText, countX, countY, new Color(150, 255, 150), 1);
         }
     }
 
     /// <summary>
-    /// Draw the menu background panel.
+    /// Draw inventory slot backgrounds.
     /// </summary>
-    private void DrawBackground(SpriteBatch spriteBatch, Viewport viewport)
-    {
-        int totalWidth = Inventory.HotbarSize * (SlotSize + SlotPadding) - SlotPadding;
-        int panelPadding = 20;
-        int panelWidth = totalWidth + panelPadding * 2;
-        int panelHeight = SlotSize + panelPadding * 2;
-        int panelX = (viewport.Width - panelWidth) / 2;
-        int panelY = viewport.Height - HotbarY - panelPadding;
-
-        // Panel background
-        var panelRect = new Rectangle(panelX, panelY, panelWidth, panelHeight);
-        spriteBatch.Draw(_pixel, panelRect, new Color(30, 30, 40, 230));
-
-        // Panel border
-        DrawRectBorder(spriteBatch, panelRect, new Color(80, 80, 100));
-
-        // Title (left side)
-        string title = "INVENTORY";
-        int titleY = panelY - 20;
-        DrawScaledPixelText(spriteBatch, title, panelX + 10, titleY, Color.White, 1);
-
-        // Gold display (right side, gold/yellow color)
-        string goldText = $"{_player.Gold}g";
-        int goldTextWidth = goldText.Length * 6; // 1x scale
-        int goldX = panelX + panelWidth - goldTextWidth - 10;
-        DrawScaledPixelText(spriteBatch, goldText, goldX, titleY, new Color(255, 215, 0), 1); // Gold color
-    }
-
-    /// <summary>
-    /// Draw slot backgrounds.
-    /// </summary>
-    private void DrawSlots(SpriteBatch spriteBatch)
+    private void DrawInventorySlots(SpriteBatch spriteBatch)
     {
         for (int i = 0; i < Inventory.HotbarSize; i++)
         {
-            var rect = _slotRects[i];
+            var rect = _inventorySlotRects[i];
 
-            // Slot states
-            bool isHovered = i == _hoveredSlot;
+            bool isHovered = i == _hoveredInventorySlot;
             bool isSource = i == _sourceIndex && _isDragging;
-            bool isSelected = i == PlayerInventory.ActiveSlotIndex;
 
-            // Border color based on state
             Color borderColor;
             if (isSource)
-                borderColor = new Color(255, 200, 100); // Gold for source
+                borderColor = new Color(255, 200, 100);
             else if (isHovered)
-                borderColor = new Color(150, 200, 255); // Light blue for hover
-            else if (isSelected)
-                borderColor = Color.White; // White for selected
+                borderColor = new Color(150, 200, 255);
             else
-                borderColor = new Color(60, 60, 70); // Default dark
+                borderColor = new Color(60, 60, 70);
 
-            // Draw border
             spriteBatch.Draw(_pixel, rect, borderColor);
 
-            // Draw inner area
             var innerRect = new Rectangle(
                 rect.X + SlotBorder,
                 rect.Y + SlotBorder,
                 rect.Width - SlotBorder * 2,
                 rect.Height - SlotBorder * 2
             );
-
-            Color innerColor = isHovered
-                ? new Color(60, 60, 70)
-                : new Color(40, 40, 50);
-
-            spriteBatch.Draw(_pixel, innerRect, innerColor);
-
-            // Slot number (1-9, 0 for slot 10)
-            string slotNum = i == 9 ? "0" : (i + 1).ToString();
-            int numX = rect.X + rect.Width - 10;
-            int numY = rect.Y + 3;
-            DrawPixelText(spriteBatch, slotNum, numX, numY, new Color(100, 100, 110));
+            spriteBatch.Draw(_pixel, innerRect, new Color(40, 40, 50));
         }
     }
 
     /// <summary>
-    /// Draw items in their slots (except held item).
+    /// Draw items in inventory slots.
     /// </summary>
-    private void DrawItems(SpriteBatch spriteBatch)
+    private void DrawInventoryItems(SpriteBatch spriteBatch)
     {
         for (int i = 0; i < Inventory.HotbarSize; i++)
         {
-            // Skip source slot while dragging (item is held)
             if (i == _sourceIndex && _isDragging)
                 continue;
 
@@ -330,20 +436,33 @@ public class InventoryMenu
             if (item == null)
                 continue;
 
-            var slotRect = _slotRects[i];
+            var slotRect = _inventorySlotRects[i];
             DrawItemInSlot(spriteBatch, item, slotRect);
         }
     }
 
     /// <summary>
-    /// Draw an item within a slot rectangle.
+    /// Draw item in the bin slot.
     /// </summary>
-    private void DrawItemInSlot(SpriteBatch spriteBatch, Item item, Rectangle slotRect)
+    private void DrawBinSlotItem(SpriteBatch spriteBatch)
     {
-        // Item color based on type
+        if (_binSlotItem == null)
+            return;
+
+        // Don't draw if we're dragging from bin slot
+        if (_sourceIndex == -2 && _isDragging)
+            return;
+
+        DrawItemInSlot(spriteBatch, _binSlotItem, _binSlotRect, showPrice: true);
+    }
+
+    /// <summary>
+    /// Draw an item in a slot.
+    /// </summary>
+    private void DrawItemInSlot(SpriteBatch spriteBatch, Item item, Rectangle slotRect, bool showPrice = false)
+    {
         Color itemColor = GetItemColor(item);
 
-        // Item rectangle (inset from slot edges)
         var itemRect = new Rectangle(
             slotRect.X + ItemInset,
             slotRect.Y + ItemInset,
@@ -353,79 +472,81 @@ public class InventoryMenu
 
         spriteBatch.Draw(_pixel, itemRect, itemColor);
 
-        // Quantity indicator for materials
+        // Quantity for materials
         if (item is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
             int qtyX = slotRect.X + slotRect.Width - qtyStr.Length * 6 - 4;
             int qtyY = slotRect.Y + slotRect.Height - 12;
-            DrawPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White);
+            DrawScaledPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White, 1);
+        }
+
+        // Price for bin slot
+        if (showPrice && item.IsSellable)
+        {
+            int totalPrice = item.SellPrice * (item is Material m ? m.Quantity : 1);
+            string priceStr = $"{totalPrice}g";
+            int priceX = slotRect.X + (slotRect.Width - priceStr.Length * 6) / 2;
+            int priceY = slotRect.Y - 14;
+            DrawScaledPixelText(spriteBatch, priceStr, priceX, priceY, new Color(255, 215, 0), 1);
         }
     }
 
     /// <summary>
     /// Draw tooltip for hovered item.
-    /// Uses scaled text (2x) for better readability.
     /// </summary>
     private void DrawTooltip(SpriteBatch spriteBatch, Viewport viewport)
     {
-        // No tooltip while dragging
         if (_isDragging)
             return;
 
-        // No slot hovered
-        if (_hoveredSlot < 0)
-            return;
+        Item? item = null;
 
-        Item? item = PlayerInventory.GetSlot(_hoveredSlot);
+        if (_hoveringBinSlot && _binSlotItem != null)
+        {
+            item = _binSlotItem;
+        }
+        else if (_hoveredInventorySlot >= 0)
+        {
+            item = PlayerInventory.GetSlot(_hoveredInventorySlot);
+        }
+
         if (item == null)
             return;
 
-        // Get mouse position for tooltip placement
         var mousePos = Mouse.GetState().Position;
 
-        // Text scale for readability
-        const int textScale = 2;
-        const int charWidth = 5 * textScale + textScale; // 5px * scale + spacing
-        const int charHeight = 7 * textScale;
-
-        // Build tooltip text - FULL item name, no truncation
+        // Build tooltip
         string name = item.Name;
-        string? description = item.Description;
+        string priceText = item.IsSellable
+            ? $"Sells for: {item.SellPrice}g"
+            : "Cannot sell";
 
-        // Calculate tooltip size based on scaled text
-        int nameWidth = name.Length * charWidth;
-        int descWidth = !string.IsNullOrEmpty(description) ? description.Length * charWidth : 0;
-        int tooltipWidth = Math.Max(nameWidth, descWidth) + 20;
-        int tooltipHeight = string.IsNullOrEmpty(description) ? charHeight + 16 : charHeight * 2 + 24;
+        int nameWidth = name.Length * 12; // 2x scale
+        int priceWidth = priceText.Length * 6;
+        int tooltipWidth = Math.Max(nameWidth, priceWidth) + 20;
+        int tooltipHeight = 40;
 
-        // Position near mouse cursor (offset to the right)
         int tooltipX = mousePos.X + 20;
         int tooltipY = mousePos.Y;
 
-        // Clamp to screen bounds
         if (tooltipX + tooltipWidth > viewport.Width - 4)
-            tooltipX = mousePos.X - tooltipWidth - 10; // Flip to left side
+            tooltipX = mousePos.X - tooltipWidth - 10;
         tooltipX = Math.Max(4, tooltipX);
         tooltipY = Math.Clamp(tooltipY, 4, viewport.Height - tooltipHeight - 4);
 
-        // Draw background (dark with transparency)
         var tooltipRect = new Rectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
-        spriteBatch.Draw(_pixel, tooltipRect, new Color(0, 0, 0, 200));
+        spriteBatch.Draw(_pixel, tooltipRect, new Color(0, 0, 0, 220));
         DrawRectBorder(spriteBatch, tooltipRect, new Color(150, 150, 180));
 
-        // Draw FULL item name (scaled)
-        DrawScaledPixelText(spriteBatch, name, tooltipX + 10, tooltipY + 8, Color.White, textScale);
+        DrawScaledPixelText(spriteBatch, name, tooltipX + 10, tooltipY + 6, Color.White, 2);
 
-        // Draw description (scaled, gray)
-        if (!string.IsNullOrEmpty(description))
-        {
-            DrawScaledPixelText(spriteBatch, description, tooltipX + 10, tooltipY + 8 + charHeight + 4, new Color(180, 180, 180), textScale);
-        }
+        Color priceColor = item.IsSellable ? new Color(255, 215, 0) : new Color(200, 100, 100);
+        DrawScaledPixelText(spriteBatch, priceText, tooltipX + 10, tooltipY + 24, priceColor, 1);
     }
 
     /// <summary>
-    /// Draw the held item following the mouse cursor.
+    /// Draw held item at mouse.
     /// </summary>
     private void DrawHeldItem(SpriteBatch spriteBatch)
     {
@@ -435,7 +556,6 @@ public class InventoryMenu
         var mousePos = Mouse.GetState().Position;
         Color itemColor = GetItemColor(_heldItem);
 
-        // Draw item centered on mouse
         int itemSize = SlotSize - ItemInset * 2;
         var itemRect = new Rectangle(
             mousePos.X - itemSize / 2,
@@ -444,51 +564,66 @@ public class InventoryMenu
             itemSize
         );
 
-        // Slight transparency to show it's being dragged
         Color dragColor = new Color((int)itemColor.R, (int)itemColor.G, (int)itemColor.B, 220);
         spriteBatch.Draw(_pixel, itemRect, dragColor);
-
-        // Draw border around held item
         DrawRectBorder(spriteBatch, itemRect, Color.White);
 
-        // Quantity for materials
         if (_heldItem is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
             int qtyX = itemRect.X + itemRect.Width - qtyStr.Length * 6 - 2;
             int qtyY = itemRect.Y + itemRect.Height - 10;
-            DrawPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White);
+            DrawScaledPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White, 1);
         }
     }
 
     /// <summary>
-    /// Get color for an item based on its type/registry key.
+    /// Draw gold display.
+    /// </summary>
+    private void DrawGoldDisplay(SpriteBatch spriteBatch, Viewport viewport)
+    {
+        string goldText = $"Gold: {_player.Gold}g";
+        int goldX = 20;
+        int goldY = viewport.Height - 130;
+        DrawScaledPixelText(spriteBatch, goldText, goldX, goldY, new Color(255, 215, 0), 2);
+
+        // Show pending value
+        if (_activeBin != null)
+        {
+            int pendingValue = _activeBin.CalculateTotalValue();
+            if (_binSlotItem != null)
+            {
+                pendingValue += _binSlotItem.SellPrice * (_binSlotItem is Material m ? m.Quantity : 1);
+            }
+
+            if (pendingValue > 0)
+            {
+                string pendingText = $"Pending: +{pendingValue}g";
+                DrawScaledPixelText(spriteBatch, pendingText, goldX, goldY + 20, new Color(150, 255, 150), 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get item color.
     /// </summary>
     private static Color GetItemColor(Item item)
     {
         return item.RegistryKey switch
         {
-            // Standard Tools
             "hoe" => new Color(139, 90, 43),
             "axe" => new Color(100, 100, 100),
             "pickaxe" => new Color(120, 120, 140),
             "watering_can" => new Color(80, 130, 200),
             "scythe" => new Color(180, 180, 100),
-            // Magic Wands
             "earth_wand" => new Color(180, 140, 60),
             "hydro_wand" => new Color(60, 180, 255),
-            // Materials
             "wood" => new Color(139, 90, 43),
             "stone" => new Color(128, 128, 128),
             "fiber" => new Color(34, 139, 34),
-            "coal" => new Color(30, 30, 30),
-            "copper_ore" => new Color(184, 115, 51),
-            // Harvest Items
             "corn" => new Color(255, 220, 80),
             "tomato" => new Color(220, 50, 50),
             "potato" => new Color(180, 140, 80),
-            "carrot" => new Color(255, 140, 0),
-            "wheat" => new Color(220, 190, 100),
             _ => item switch
             {
                 Tool => new Color(100, 150, 255),
@@ -499,31 +634,18 @@ public class InventoryMenu
     }
 
     /// <summary>
-    /// Draw a 1px border around a rectangle.
+    /// Draw rectangle border.
     /// </summary>
     private void DrawRectBorder(SpriteBatch spriteBatch, Rectangle rect, Color color)
     {
-        // Top
         spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), color);
-        // Bottom
         spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), color);
-        // Left
         spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
-        // Right
         spriteBatch.Draw(_pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
     }
 
     /// <summary>
-    /// Simple pixel-based text rendering (1x scale).
-    /// </summary>
-    private void DrawPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color)
-    {
-        DrawScaledPixelText(spriteBatch, text, x, y, color, 1);
-    }
-
-    /// <summary>
-    /// Scaled pixel-based text rendering.
-    /// Scale of 2 makes each pixel 2x2, etc.
+    /// Scaled pixel text.
     /// </summary>
     private void DrawScaledPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color, int scale)
     {
@@ -539,7 +661,7 @@ public class InventoryMenu
     }
 
     /// <summary>
-    /// Draw a single character using pixel patterns with scaling.
+    /// Draw scaled pixel character.
     /// </summary>
     private void DrawScaledPixelChar(SpriteBatch spriteBatch, char c, int x, int y, Color color, int scale)
     {
@@ -563,12 +685,10 @@ public class InventoryMenu
     }
 
     /// <summary>
-    /// Get 5x7 pixel pattern for a character.
-    /// Supports uppercase, lowercase (rendered as small caps), digits, and punctuation.
+    /// Get character pattern.
     /// </summary>
     private static string[] GetCharPattern(char c) => c switch
     {
-        // Digits
         '0' => new[] { " ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### " },
         '1' => new[] { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
         '2' => new[] { " ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####" },
@@ -579,8 +699,6 @@ public class InventoryMenu
         '7' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   " },
         '8' => new[] { " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### " },
         '9' => new[] { " ### ", "#   #", "#   #", " ####", "    #", "   # ", " ##  " },
-
-        // Uppercase letters
         'A' => new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
         'B' => new[] { "#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### " },
         'C' => new[] { " ### ", "#   #", "#    ", "#    ", "#    ", "#   #", " ### " },
@@ -590,27 +708,16 @@ public class InventoryMenu
         'G' => new[] { " ### ", "#   #", "#    ", "# ###", "#   #", "#   #", " ### " },
         'H' => new[] { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
         'I' => new[] { " ### ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'J' => new[] { "  ###", "   # ", "   # ", "   # ", "#  # ", "#  # ", " ##  " },
         'K' => new[] { "#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #" },
         'L' => new[] { "#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####" },
-        'M' => new[] { "#   #", "## ##", "# # #", "#   #", "#   #", "#   #", "#   #" },
         'N' => new[] { "#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #" },
         'O' => new[] { " ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
         'P' => new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'Q' => new[] { " ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #" },
         'R' => new[] { "#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #" },
         'S' => new[] { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " },
         'T' => new[] { "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  " },
         'U' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-        'V' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  " },
-        'W' => new[] { "#   #", "#   #", "#   #", "#   #", "# # #", "## ##", "#   #" },
-        'X' => new[] { "#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #" },
-        'Y' => new[] { "#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  " },
-        'Z' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####" },
-
-        // Lowercase letters (rendered slightly smaller/different where practical)
         'a' => new[] { "     ", "     ", " ### ", "    #", " ####", "#   #", " ####" },
-        'b' => new[] { "#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#### " },
         'c' => new[] { "     ", "     ", " ### ", "#    ", "#    ", "#    ", " ### " },
         'd' => new[] { "    #", "    #", " ####", "#   #", "#   #", "#   #", " ####" },
         'e' => new[] { "     ", "     ", " ### ", "#   #", "#####", "#    ", " ### " },
@@ -618,44 +725,18 @@ public class InventoryMenu
         'g' => new[] { "     ", " ####", "#   #", "#   #", " ####", "    #", " ### " },
         'h' => new[] { "#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#   #" },
         'i' => new[] { "  #  ", "     ", " ##  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'j' => new[] { "   # ", "     ", "  ## ", "   # ", "   # ", "#  # ", " ##  " },
-        'k' => new[] { "#    ", "#    ", "#  # ", "# #  ", "##   ", "# #  ", "#  # " },
         'l' => new[] { " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'm' => new[] { "     ", "     ", "## # ", "# # #", "# # #", "#   #", "#   #" },
         'n' => new[] { "     ", "     ", "#### ", "#   #", "#   #", "#   #", "#   #" },
         'o' => new[] { "     ", "     ", " ### ", "#   #", "#   #", "#   #", " ### " },
         'p' => new[] { "     ", "#### ", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'q' => new[] { "     ", " ####", "#   #", " ####", "    #", "    #", "    #" },
         'r' => new[] { "     ", "     ", "# ## ", "##   ", "#    ", "#    ", "#    " },
         's' => new[] { "     ", "     ", " ####", "#    ", " ### ", "    #", "#### " },
         't' => new[] { " #   ", " #   ", "#### ", " #   ", " #   ", " #   ", "  ## " },
         'u' => new[] { "     ", "     ", "#   #", "#   #", "#   #", "#   #", " ####" },
-        'v' => new[] { "     ", "     ", "#   #", "#   #", "#   #", " # # ", "  #  " },
-        'w' => new[] { "     ", "     ", "#   #", "#   #", "# # #", "# # #", " # # " },
-        'x' => new[] { "     ", "     ", "#   #", " # # ", "  #  ", " # # ", "#   #" },
-        'y' => new[] { "     ", "#   #", "#   #", " ####", "    #", "   # ", "###  " },
-        'z' => new[] { "     ", "     ", "#####", "   # ", "  #  ", " #   ", "#####" },
-
-        // Punctuation and symbols
         ' ' => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " },
-        '.' => new[] { "     ", "     ", "     ", "     ", "     ", "  #  ", "  #  " },
-        ',' => new[] { "     ", "     ", "     ", "     ", "  #  ", "  #  ", " #   " },
         ':' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     " },
-        ';' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", " #   " },
-        '!' => new[] { "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  " },
-        '?' => new[] { " ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  " },
-        '-' => new[] { "     ", "     ", "     ", "#####", "     ", "     ", "     " },
         '+' => new[] { "     ", "  #  ", "  #  ", "#####", "  #  ", "  #  ", "     " },
-        '=' => new[] { "     ", "     ", "#####", "     ", "#####", "     ", "     " },
-        '(' => new[] { "  #  ", " #   ", "#    ", "#    ", "#    ", " #   ", "  #  " },
-        ')' => new[] { "  #  ", "   # ", "    #", "    #", "    #", "   # ", "  #  " },
-        '[' => new[] { " ### ", " #   ", " #   ", " #   ", " #   ", " #   ", " ### " },
-        ']' => new[] { " ### ", "   # ", "   # ", "   # ", "   # ", "   # ", " ### " },
-        '/' => new[] { "    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    " },
-        '\'' => new[] { "  #  ", "  #  ", " #   ", "     ", "     ", "     ", "     " },
-        '"' => new[] { " # # ", " # # ", "     ", "     ", "     ", "     ", "     " },
-
-        // Default: empty
+        '-' => new[] { "     ", "     ", "     ", "#####", "     ", "     ", "     " },
         _ => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " }
     };
 }

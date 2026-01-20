@@ -18,9 +18,10 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Core Game Loop
 - **Program.cs**: Entry point
-- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory)
+- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory/Shipping)
 - **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
 - **InventoryMenu.cs**: Inventory UI with drag-and-drop (View-Model pattern)
+- **ShippingMenu.cs**: Shipping bin UI for selling items (Stardew-style, v2.9)
 
 ### World & Tiles
 - **GameLocation.cs**: Tile map container with name, tiles, and warp points
@@ -71,10 +72,10 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ## Key Patterns
 
-### Game State FSM (v2.8)
+### Game State FSM (v2.8+)
 High-level game flow control using Finite State Machine:
 ```csharp
-public enum GameState { Playing, Inventory }
+public enum GameState { Playing, Inventory, Shipping }
 public GameState CurrentState { get; private set; }
 
 protected override void Update(GameTime gameTime)
@@ -84,6 +85,7 @@ protected override void Update(GameTime gameTime)
         case GameState.Playing:
             // World updates, player moves, time passes
             // E/Tab → transition to Inventory
+            // Click ShippingBin → transition to Shipping
             _world.Update(gameTime);
             break;
 
@@ -92,6 +94,13 @@ protected override void Update(GameTime gameTime)
             // Only UI updates (drag-and-drop)
             // E/Tab/Esc → transition to Playing
             _inventoryMenu.Update(Mouse.GetState());
+            break;
+
+        case GameState.Shipping:
+            // World PAUSED, shipping menu active
+            // Drag items to bin slot to sell
+            // E/Tab/Esc → finalize and return to Playing
+            _shippingMenu.Update(Mouse.GetState());
             break;
     }
 }
@@ -254,6 +263,51 @@ private bool TryHarvestCrop(Crop crop, WorldObject obj)
 
     return true;
 }
+```
+
+### Economy System (v2.9)
+**Player Gold & Item Prices**
+```csharp
+// Player.cs
+public int Gold { get; set; } = 500;
+
+// Item.cs - Base class
+public int SellPrice { get; init; } = -1;  // -1 = unsellable
+public bool IsSellable => SellPrice > 0;
+
+// Material.cs constructor
+new Material("wood", "Wood", "...", quantity: 25, sellPrice: 2);
+```
+
+**Shipping Bin** (`ShippingBin.cs`)
+- World object spawned on Farm at tile (2, 2)
+- Click to open `ShippingMenu` UI (via `WorldManager.OnOpenShippingMenu` event)
+- Manifest processed overnight in `OnDayPassed`:
+
+```csharp
+// WorldManager.ProcessNightlyShipments()
+foreach (var bin in allShippingBins)
+{
+    int earnings = bin.ProcessNightlyShipment(); // Clears manifest
+    Player.Gold += earnings;
+}
+```
+
+**Shipping Menu** (`ShippingMenu.cs`) - Stardew-style UI
+- **Bin Slot**: Single large slot acts as "undo buffer"
+- **Push System**: Dropping new item → auto-finalizes previous item to manifest
+- **Undo**: Drag item from bin slot back to inventory before close
+- **On Close**: Bin slot item finalized, state returns to Playing
+
+```csharp
+// Drop into bin slot
+if (_binSlotItem != null)
+    _activeBin.ShipItem(_binSlotItem);  // Finalize old item
+_binSlotItem = _heldItem;               // New item in buffer
+
+// On menu close
+if (_binSlotItem != null)
+    _activeBin.ShipItem(_binSlotItem);  // Finalize last item
 ```
 
 ### Item Serialization

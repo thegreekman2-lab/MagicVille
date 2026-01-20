@@ -28,6 +28,7 @@ public class SaveData
     public float PlayerPositionX { get; set; }
     public float PlayerPositionY { get; set; }
     public string PlayerName { get; set; } = "Farmer";
+    public int PlayerGold { get; set; } = 500;
 
     // World state
     public string CurrentLocationName { get; set; } = "Farm";

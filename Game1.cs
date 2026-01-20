@@ -12,7 +12,8 @@ namespace MagicVille;
 public enum GameState
 {
     Playing,    // Normal gameplay - world updates, player moves
-    Inventory   // Inventory menu open - world paused, UI active
+    Inventory,  // Inventory menu open - world paused, UI active
+    Shipping    // Shipping bin menu open - drag items to sell
 }
 
 public class Game1 : Game
@@ -21,6 +22,7 @@ public class Game1 : Game
     private SpriteBatch _spriteBatch = null!;
     private WorldManager _world = null!;
     private InventoryMenu _inventoryMenu = null!;
+    private ShippingMenu _shippingMenu = null!;
     private Texture2D _pixel = null!;
 
     // Input tracking for state transitions
@@ -28,6 +30,9 @@ public class Game1 : Game
 
     // FSM: Current game state
     public GameState CurrentState { get; private set; } = GameState.Playing;
+
+    // Reference to active shipping bin (set when opening shipping menu)
+    private ShippingBin? _activeShippingBin;
 
     // Animation timer for UI effects
     private double _totalTime;
@@ -81,6 +86,12 @@ public class Game1 : Game
 
         // Initialize inventory menu with player reference (View-Model binding)
         _inventoryMenu = new InventoryMenu(_world.Player, _pixel, GraphicsDevice);
+
+        // Initialize shipping menu
+        _shippingMenu = new ShippingMenu(_world.Player, _pixel, GraphicsDevice);
+
+        // Subscribe to world events
+        _world.OnOpenShippingMenu += OpenShippingMenu;
     }
 
     protected override void Update(GameTime gameTime)
@@ -98,6 +109,10 @@ public class Game1 : Game
 
             case GameState.Inventory:
                 UpdateInventory(gameTime, keyboard);
+                break;
+
+            case GameState.Shipping:
+                UpdateShipping(gameTime, keyboard);
                 break;
         }
 
@@ -144,6 +159,39 @@ public class Game1 : Game
     }
 
     /// <summary>
+    /// Update logic for Shipping state.
+    /// World is paused, shipping menu handles drag-and-drop to sell items.
+    /// </summary>
+    private void UpdateShipping(GameTime gameTime, KeyboardState keyboard)
+    {
+        // Check for state transition back to Playing
+        if (IsKeyPressed(keyboard, Keys.E) ||
+            IsKeyPressed(keyboard, Keys.Tab) ||
+            IsKeyPressed(keyboard, Keys.Escape))
+        {
+            // Finalize shipping (move bin slot item to manifest)
+            _shippingMenu.FinalizeAndClose(_activeShippingBin);
+            _activeShippingBin = null;
+            CurrentState = GameState.Playing;
+            return;
+        }
+
+        // Update shipping menu (handles drag-and-drop)
+        _shippingMenu.Update(Mouse.GetState());
+    }
+
+    /// <summary>
+    /// Open the shipping menu for a specific shipping bin.
+    /// Called by WorldManager when player interacts with ShippingBin.
+    /// </summary>
+    public void OpenShippingMenu(ShippingBin bin)
+    {
+        _activeShippingBin = bin;
+        _shippingMenu.Open(bin);
+        CurrentState = GameState.Shipping;
+    }
+
+    /// <summary>
     /// Check if a key was just pressed this frame.
     /// </summary>
     private bool IsKeyPressed(KeyboardState current, Keys key)
@@ -170,13 +218,38 @@ public class Game1 : Game
         var screenRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
         _world.Transition.Draw(_spriteBatch, _pixel, screenRect);
 
-        // === LAYER 5: Inventory Menu Overlay (if in Inventory state) ===
+        // === LAYER 5: Menu Overlays ===
         if (CurrentState == GameState.Inventory)
         {
             DrawInventoryOverlay(viewport);
         }
+        else if (CurrentState == GameState.Shipping)
+        {
+            DrawShippingOverlay(viewport);
+        }
 
         base.Draw(gameTime);
+    }
+
+    /// <summary>
+    /// Draw the shipping menu overlay.
+    /// </summary>
+    private void DrawShippingOverlay(Viewport viewport)
+    {
+        _spriteBatch.Begin(
+            sortMode: SpriteSortMode.Deferred,
+            blendState: BlendState.AlphaBlend,
+            samplerState: SamplerState.PointClamp
+        );
+
+        // Dim background
+        var screenRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+        _spriteBatch.Draw(_pixel, screenRect, new Color(0, 0, 0, 150));
+
+        _spriteBatch.End();
+
+        // Draw shipping menu (has its own SpriteBatch begin/end)
+        _shippingMenu.Draw(_spriteBatch, viewport);
     }
 
     /// <summary>

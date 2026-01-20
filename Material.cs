@@ -1,7 +1,7 @@
 namespace MagicVille;
 
 /// <summary>
-/// Stackable materials for crafting and building.
+/// Stackable materials for crafting, building, and selling.
 /// </summary>
 public class Material : Item
 {
@@ -17,8 +17,17 @@ public class Material : Item
     // Parameterless constructor for JSON deserialization
     public Material() { }
 
-    public Material(string registryKey, string name, string description, int quantity = 1, int maxStack = 99)
-        : base(name, description)
+    /// <summary>
+    /// Create a new Material item.
+    /// </summary>
+    /// <param name="registryKey">Unique identifier for this material type.</param>
+    /// <param name="name">Display name.</param>
+    /// <param name="description">Flavor text.</param>
+    /// <param name="quantity">Initial stack size.</param>
+    /// <param name="maxStack">Maximum stack size.</param>
+    /// <param name="sellPrice">Price when sold (-1 for unsellable, or use default based on type).</param>
+    public Material(string registryKey, string name, string description, int quantity = 1, int maxStack = 99, int sellPrice = 10)
+        : base(name, description, sellPrice)
     {
         RegistryKey = registryKey;
         Quantity = quantity;

@@ -30,6 +30,9 @@ public class Player : IRenderable
     // Player inventory (hotbar)
     public Inventory Inventory { get; } = new();
 
+    // Player currency
+    public int Gold { get; set; } = 500;
+
     public Player(Vector2 startPosition)
     {
         Position = startPosition;

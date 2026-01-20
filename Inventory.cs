@@ -208,9 +208,9 @@ public class Inventory
         SetSlot(5, new Tool("earth_wand", "Earth Wand", "Magically tills soil with earth energy.", resourceCost: 1f, powerLevel: 2));
         SetSlot(6, new Tool("hydro_wand", "Hydro Wand", "Conjures water to nourish crops.", resourceCost: 1f, powerLevel: 2, affectsTileThroughObjects: true));
 
-        // Materials
-        SetSlot(7, new Material("wood", "Wood", "Basic building material.", quantity: 25));
-        SetSlot(8, new Material("stone", "Stone", "Hard and sturdy.", quantity: 15));
+        // Materials (with sell prices)
+        SetSlot(7, new Material("wood", "Wood", "Basic building material.", quantity: 25, sellPrice: 2));
+        SetSlot(8, new Material("stone", "Stone", "Hard and sturdy.", quantity: 15, sellPrice: 2));
         // Slot 9 empty
     }
 }

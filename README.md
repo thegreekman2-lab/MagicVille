@@ -92,6 +92,8 @@ MagicVille/
 ├── Tree.cs             # Tree subclass with growth/stump mechanics
 ├── ManaNode.cs         # Mana crystal with daily recharge
 ├── Bed.cs              # Furniture for sleeping and day advancement
+├── ShippingBin.cs      # Shipping bin for selling items overnight
+├── ShippingMenu.cs     # Shipping bin UI (Stardew-style drag-and-drop)
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
 ├── TileSaveData.cs     # Serializable modified tile data
@@ -129,7 +131,35 @@ MagicVille/
 
 ## Version History
 
-### v2.8 - Inventory UI & Game States (Current)
+### v2.9 - Economy Loop (Current)
+
+**Player Economy**
+- **Gold System**: Player starts with 500g, saved/loaded with game state
+- **Item Prices**: Items have `SellPrice` property (-1 = unsellable)
+- Basic materials: Wood = 2g, Stone = 2g
+
+**Shipping Bin** (`ShippingBin.cs`)
+- Interactive world object spawned on Farm (tile 2,2)
+- Click to open Shipping Menu UI
+- Items in manifest are sold overnight during `OnDayPassed`
+- Total earnings added to player gold with debug report
+
+**Shipping Menu** (`ShippingMenu.cs`) - Stardew-style UI
+- **Bin Slot Buffer**: Large center slot acts as "last item" undo buffer
+- **Push System**: Dropping new item auto-finalizes previous item to manifest
+- **Undo**: Drag item from bin slot back to inventory anytime
+- **On Close**: Any item in bin slot is finalized to shipping manifest
+- Shows pending gold value and current player gold
+
+**New Game State**
+- `GameState.Shipping`: World paused, shipping menu active
+- Transition: Click ShippingBin → Open menu, E/Tab/Esc → Close and finalize
+
+**Event System**
+- `WorldManager.OnOpenShippingMenu` event for UI decoupling
+- Game1 subscribes to event to handle state transitions
+
+### v2.8 - Inventory UI & Game States
 
 **Game State FSM** (`Game1.cs`)
 - `GameState` enum: `Playing`, `Inventory`

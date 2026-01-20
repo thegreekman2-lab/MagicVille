@@ -251,14 +251,33 @@ public class Crop : WorldObject
         // TODO: In v3, replace with Item Database lookup
         // For now, create a Material directly with the harvest item ID
         string displayName = char.ToUpper(HarvestItemId[0]) + HarvestItemId[1..];
+        int sellPrice = GetCropSellPrice(HarvestItemId);
+
         return new Material(
             registryKey: HarvestItemId,
             name: displayName,
             description: $"Fresh {displayName} from the farm.",
             quantity: HarvestQuantity,
-            maxStack: 99
+            maxStack: 99,
+            sellPrice: sellPrice
         );
     }
+
+    /// <summary>
+    /// Get the sell price for a crop type.
+    /// TODO: Move to Item Database in v3.
+    /// </summary>
+    private static int GetCropSellPrice(string cropId) => cropId switch
+    {
+        "corn" => 50,       // 2 ears at 50g = 100g per harvest
+        "tomato" => 35,     // 3 tomatoes at 35g = 105g per harvest (regrows)
+        "potato" => 40,     // 4 potatoes at 40g = 160g per harvest
+        "carrot" => 30,     // Basic crop
+        "wheat" => 20,      // Cheap but fast
+        "pumpkin" => 120,   // Premium crop
+        "melon" => 100,     // Summer premium
+        _ => 25             // Default value
+    };
 
     /// <summary>
     /// Harvest the crop (only valid at Mature stage).

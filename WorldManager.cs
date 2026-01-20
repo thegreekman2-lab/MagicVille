@@ -48,6 +48,9 @@ public class WorldManager
     // Debug visualization (F3 toggle)
     public bool ShowDebug { get; private set; }
 
+    // Event: Request to open shipping menu (Game1 subscribes to this)
+    public event Action<ShippingBin>? OnOpenShippingMenu;
+
     // Graphics resources (initialized in Initialize())
     private Texture2D _pixel = null!;
     private Texture2D _playerSpritesheet = null!;
@@ -183,6 +186,12 @@ public class WorldManager
         Debug.WriteLine("╚════════════════════════════════════════════════════════════════╝");
 
         // ═══════════════════════════════════════════════════════════════════
+        // PAYDAY: Process nightly shipments BEFORE anything else
+        // This ensures player receives gold before save
+        // ═══════════════════════════════════════════════════════════════════
+        ProcessNightlyShipments();
+
+        // ═══════════════════════════════════════════════════════════════════
         // PASS 1: THE GROWTH PHASE
         // Process all objects WHILE TILES ARE STILL WET
         // Crops can check tile state and grow accordingly
@@ -210,6 +219,35 @@ public class WorldManager
         }
 
         Debug.WriteLine($"[WorldManager] Day {newDay} processing complete");
+    }
+
+    /// <summary>
+    /// Process all shipping bins and pay the player for shipped items.
+    /// Called at start of OnDayPassed, before save.
+    /// </summary>
+    private void ProcessNightlyShipments()
+    {
+        int totalEarnings = 0;
+
+        // Find all shipping bins across all locations
+        foreach (var (locationName, objects) in LocationObjects)
+        {
+            foreach (var obj in objects)
+            {
+                if (obj is ShippingBin bin)
+                {
+                    int earnings = bin.ProcessNightlyShipment();
+                    totalEarnings += earnings;
+                }
+            }
+        }
+
+        // Pay the player
+        if (totalEarnings > 0)
+        {
+            Player.Gold += totalEarnings;
+            Debug.WriteLine($"[WorldManager] ★ PAYDAY: Player earned {totalEarnings}g (Total: {Player.Gold}g)");
+        }
     }
 
     /// <summary>
@@ -430,6 +468,11 @@ public class WorldManager
             var pos = GetAlignedPosition(tileX, tileY, 32, 16); // Seed dimensions
             farmObjects.Add(Crop.CreateTomatoSeed(pos, tileX, tileY));
         }
+
+        // Spawn Shipping Bin at fixed location near farm edge (easy to find)
+        // Position: tile (2, 2) - top-left area, accessible
+        farmObjects.Add(ShippingBin.Create(2, 2));
+        Debug.WriteLine("[WorldManager] Spawned ShippingBin at tile (2, 2)");
 
         Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (seed: {WorldSeed})");
     }
@@ -839,6 +882,12 @@ public class WorldManager
                 }
                 Debug.WriteLine("[Bed] Cannot use this bed");
                 return true;
+
+            case ShippingBin bin:
+                // Open the shipping menu UI (Game1 handles this via event)
+                OnOpenShippingMenu?.Invoke(bin);
+                Debug.WriteLine("[WorldManager] Opening shipping menu for bin");
+                return true; // Always consume the interaction
         }
 
         // Fall back to name-based interaction for base WorldObjects
@@ -1470,6 +1519,7 @@ public class WorldManager
             PlayerPositionX = Player.Position.X,
             PlayerPositionY = Player.Position.Y,
             PlayerName = Player.Name,
+            PlayerGold = Player.Gold,
             CurrentLocationName = CurrentLocationName,
             WorldSeed = WorldSeed,
             Day = TimeManager.Day,
@@ -1546,10 +1596,12 @@ public class WorldManager
         // Restore player state
         Player.Position = new Vector2(data.PlayerPositionX, data.PlayerPositionY);
         Player.Name = data.PlayerName;
+        Player.Gold = data.PlayerGold;
         Player.Inventory.LoadFromSaveList(data.InventorySlots);
         Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
 
         Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName}");
+        Debug.WriteLine($"[WorldManager] Restored player gold: {Player.Gold}g");
     }
 
     /// <summary>
