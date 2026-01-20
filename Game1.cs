@@ -13,7 +13,8 @@ public enum GameState
 {
     Playing,    // Normal gameplay - world updates, player moves
     Inventory,  // Inventory menu open - world paused, UI active
-    Shipping    // Shipping bin menu open - drag items to sell
+    Shipping,   // Shipping bin menu open - drag items to sell
+    Dialogue    // Dialogue box displayed - world paused, reading text
 }
 
 public class Game1 : Game
@@ -92,6 +93,7 @@ public class Game1 : Game
 
         // Subscribe to world events
         _world.OnOpenShippingMenu += OpenShippingMenu;
+        _world.OnOpenDialogue += OpenDialogue;
     }
 
     protected override void Update(GameTime gameTime)
@@ -113,6 +115,10 @@ public class Game1 : Game
 
             case GameState.Shipping:
                 UpdateShipping(gameTime, keyboard);
+                break;
+
+            case GameState.Dialogue:
+                UpdateDialogue(gameTime, keyboard);
                 break;
         }
 
@@ -181,6 +187,18 @@ public class Game1 : Game
     }
 
     /// <summary>
+    /// Update logic for Dialogue state.
+    /// World is paused, dialogue box handles typewriter and input.
+    /// </summary>
+    private void UpdateDialogue(GameTime gameTime, KeyboardState keyboard)
+    {
+        // DialogueSystem handles its own input and closing
+        DialogueSystem.Update(gameTime);
+
+        // If dialogue closed itself, we're already back to Playing (via callback)
+    }
+
+    /// <summary>
     /// Open the shipping menu for a specific shipping bin.
     /// Called by WorldManager when player interacts with ShippingBin.
     /// </summary>
@@ -189,6 +207,20 @@ public class Game1 : Game
         _activeShippingBin = bin;
         _shippingMenu.Open(bin);
         CurrentState = GameState.Shipping;
+    }
+
+    /// <summary>
+    /// Open a dialogue box with the specified text.
+    /// Called by WorldManager when player interacts with Sign or NPC.
+    /// </summary>
+    public void OpenDialogue(string text)
+    {
+        DialogueSystem.Show(text, () =>
+        {
+            // Callback when dialogue closes
+            CurrentState = GameState.Playing;
+        });
+        CurrentState = GameState.Dialogue;
     }
 
     /// <summary>
@@ -227,6 +259,10 @@ public class Game1 : Game
         {
             DrawShippingOverlay(viewport);
         }
+        else if (CurrentState == GameState.Dialogue)
+        {
+            DrawDialogueOverlay(viewport);
+        }
 
         base.Draw(gameTime);
     }
@@ -250,6 +286,15 @@ public class Game1 : Game
 
         // Draw shipping menu (has its own SpriteBatch begin/end)
         _shippingMenu.Draw(_spriteBatch, viewport);
+    }
+
+    /// <summary>
+    /// Draw the dialogue box overlay.
+    /// </summary>
+    private void DrawDialogueOverlay(Viewport viewport)
+    {
+        // Dialogue system draws its own box
+        DialogueSystem.Draw(_spriteBatch, _pixel, viewport);
     }
 
     /// <summary>

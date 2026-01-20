@@ -51,6 +51,9 @@ public class WorldManager
     // Event: Request to open shipping menu (Game1 subscribes to this)
     public event Action<ShippingBin>? OnOpenShippingMenu;
 
+    // Event: Request to open dialogue (Game1 subscribes to this)
+    public event Action<string>? OnOpenDialogue;
+
     // Graphics resources (initialized in Initialize())
     private Texture2D _pixel = null!;
     private Texture2D _playerSpritesheet = null!;
@@ -481,6 +484,11 @@ public class WorldManager
         farmObjects.Add(ShippingBin.Create(2, 2));
         Debug.WriteLine("[WorldManager] Spawned ShippingBin at tile (2, 2)");
 
+        // Spawn welcome Sign near player spawn area
+        // Position: tile (12, 5) - easily visible at game start
+        farmObjects.Add(Sign.CreateAtTile(12, 5, "Welcome to the Farm! Press E to open your inventory. Click objects to interact with them."));
+        Debug.WriteLine("[WorldManager] Spawned Sign at tile (12, 5)");
+
         Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (seed: {WorldSeed})");
     }
 
@@ -906,6 +914,12 @@ public class WorldManager
                 // Open the shipping menu UI (Game1 handles this via event)
                 OnOpenShippingMenu?.Invoke(bin);
                 Debug.WriteLine("[WorldManager] Opening shipping menu for bin");
+                return true; // Always consume the interaction
+
+            case Sign sign:
+                // Open dialogue box with sign text (Game1 handles this via event)
+                OnOpenDialogue?.Invoke(sign.Text);
+                Debug.WriteLine($"[WorldManager] Reading sign: \"{sign.Text}\"");
                 return true; // Always consume the interaction
         }
 

@@ -18,10 +18,11 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Core Game Loop
 - **Program.cs**: Entry point
-- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory/Shipping)
+- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory/Shipping/Dialogue)
 - **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
 - **InventoryMenu.cs**: Inventory UI with drag-and-drop (View-Model pattern)
 - **ShippingMenu.cs**: Shipping bin UI for selling items (Stardew-style, v2.9)
+- **DialogueSystem.cs**: Static dialogue manager with typewriter effect (v2.11)
 
 ### World & Tiles
 - **GameLocation.cs**: Tile map container with name, tiles, and warp points
@@ -45,6 +46,16 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **Player.TryUseStamina(cost)**: Returns true if enough stamina, deducts cost
 - **Recovery**: Full stamina restore on sleep/new day
 - **Persistence**: CurrentStamina saved/loaded to prevent save scumming
+
+### Dialogue System (v2.11)
+- **DialogueSystem.cs**: Static manager for RPG-style text boxes
+- **Typewriter Effect**: Characters appear one at a time (0.03s per char)
+- **Input Handling**:
+  - Click/Space/Enter/E while typing: Instant finish
+  - Click/Space/Enter/E when done: Close dialogue
+  - Input consumption prevents tool swing on close
+- **Sign.cs**: WorldObject subclass for readable signs
+- **OnOpenDialogue Event**: WorldManager → Game1 communication
 
 ### World Objects & Rendering
 - **WorldObject.cs**: Physical objects (rocks, trees, bushes, mana nodes) with collision

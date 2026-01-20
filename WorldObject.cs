@@ -21,6 +21,7 @@ namespace MagicVille;
 [JsonDerivedType(typeof(ManaNode), "mana_node")]
 [JsonDerivedType(typeof(Bed), "bed")]
 [JsonDerivedType(typeof(ShippingBin), "shipping_bin")]
+[JsonDerivedType(typeof(Sign), "sign")]
 public class WorldObject : IRenderable
 {
     /// <summary>Unique identifier for this object instance.</summary>

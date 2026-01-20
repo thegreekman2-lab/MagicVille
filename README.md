@@ -94,6 +94,8 @@ MagicVille/
 ├── Bed.cs              # Furniture for sleeping and day advancement
 ├── ShippingBin.cs      # Shipping bin for selling items overnight
 ├── ShippingMenu.cs     # Shipping bin UI (Stardew-style drag-and-drop)
+├── Sign.cs             # Readable sign world object
+├── DialogueSystem.cs   # Static dialogue manager with typewriter effect
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
 ├── TileSaveData.cs     # Serializable modified tile data
@@ -131,7 +133,31 @@ MagicVille/
 
 ## Version History
 
-### v2.10 - Stamina System (Current)
+### v2.11 - Dialogue System (Current)
+
+**Narrative Layer**
+- `GameState.Dialogue`: World paused while reading text
+- Event-driven architecture for UI decoupling
+
+**DialogueSystem.cs** - Static Manager
+- **Typewriter Effect**: Characters appear at 0.03s intervals
+- **Input Handling**:
+  - During typing: Click/Space/Enter/E → Instant finish
+  - After typing: Click/Space/Enter/E → Close dialogue
+- **Input Consumption**: Prevents click-through to game world
+- RPG-style box at bottom (80% width, dark blue, white border)
+- Word wrapping for long text
+
+**Sign.cs** - Readable World Object
+- WorldObject subclass with `Text` property
+- Click to read, opens dialogue box
+- JSON serialization support
+
+**Integration**
+- Welcome sign spawned at tile (12, 5) on Farm
+- `OnOpenDialogue` event from WorldManager to Game1
+
+### v2.10 - Stamina System
 
 **Player Energy**
 - **MaxStamina**: 100 energy capacity (upgradeable in future)
