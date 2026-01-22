@@ -33,6 +33,17 @@ public class Tool : Item
     /// </summary>
     public bool AffectsTileThroughObjects { get; init; } = false;
 
+    /// <summary>
+    /// Whether this tool is a weapon (used for combat).
+    /// Weapons use the attack hitbox system instead of tile interaction.
+    /// </summary>
+    public bool IsWeapon { get; init; } = false;
+
+    /// <summary>
+    /// Attack damage (for weapons only).
+    /// </summary>
+    public int AttackDamage { get; init; } = 1;
+
     // Parameterless constructor for JSON deserialization
     public Tool() { }
 

@@ -177,24 +177,34 @@ public class GameLocation
     }
 
     /// <summary>
-    /// Creates the Farm location (50x50 fixed layout for controlled testing).
+    /// Creates the Farm location (50x100 fixed layout for controlled testing).
     /// Replaces random generation with a deterministic map.
     ///
-    /// LAYOUT:
-    /// - Lawn (0-29, all): Safe grass area for zero-cost testing
-    /// - Garden (15-25, 10-20): Tillable dirt plot
-    /// - Forest (30+, all): Trees and rocks for stamina testing
-    /// - Farmhouse area around (10, 10): Home base with ShippingBin, Sign
-    /// - Pond: Bottom-left corner
-    /// - Cabin entrance: Right edge
+    /// LAYOUT (North = Safe Zone, South = Danger Zone):
+    /// - NORTH ZONE (Y 0-49): Safe farming area
+    ///   - Lawn (0-29, 0-49): Safe grass area for zero-cost testing
+    ///   - Garden (15-25, 10-20): Tillable dirt plot
+    ///   - Forest (30+, 0-49): Trees and rocks for stamina testing
+    ///   - Farmhouse area around (10, 10): Home base with ShippingBin, Sign
+    ///   - Pond: Near bottom-left of north zone
+    ///   - Cabin entrance: Right edge at Y=25
+    ///
+    /// - THE DIVIDER (Y=50): Water barrier with bridge gap in middle
+    ///
+    /// - SOUTH ZONE (Y 51-99): Danger Zone with enemies
+    ///   - Sparse grass with rocky terrain
+    ///   - Enemies spawn here
     /// </summary>
     public static GameLocation CreateFarm(int seed = 0)
     {
         int width = 50;
-        int height = 50;
+        int height = 100; // Expanded to 100 tiles tall
+
         var location = new GameLocation("Farm", width, height);
 
-        // STEP 1: Fill entire map with grass
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 1: Fill entire map with grass (base layer)
+        // ═══════════════════════════════════════════════════════════════════
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -203,7 +213,11 @@ public class GameLocation
             }
         }
 
-        // STEP 2: The Garden - tillable dirt plot (15-25, 10-20)
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 2: NORTH ZONE - Safe farming area (Y 0-49)
+        // ═══════════════════════════════════════════════════════════════════
+
+        // The Garden - tillable dirt plot (15-25, 10-20)
         for (int y = 10; y <= 20; y++)
         {
             for (int x = 15; x <= 25; x++)
@@ -212,8 +226,8 @@ public class GameLocation
             }
         }
 
-        // STEP 3: Small pond in bottom-left (0-5, 44-49)
-        for (int y = 44; y < 50; y++)
+        // Small pond in north zone (0-5, 40-45)
+        for (int y = 40; y < 46; y++)
         {
             for (int x = 0; x < 6; x++)
             {
@@ -221,14 +235,62 @@ public class GameLocation
             }
         }
 
-        // STEP 4: Stone path to cabin entrance (45-49, 25)
+        // Stone path to cabin entrance (45-49, 25)
         for (int x = 45; x < 50; x++)
         {
             location.Tiles[x, 25] = Tile.Stone;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 3: THE DIVIDER - Water barrier at Y=50 with bridge gap
+        // ═══════════════════════════════════════════════════════════════════
+        for (int x = 0; x < width; x++)
+        {
+            // Bridge gap in the middle (X 23-26)
+            if (x >= 23 && x <= 26)
+            {
+                location.Tiles[x, 50] = Tile.Stone; // Bridge
+            }
+            else
+            {
+                location.Tiles[x, 50] = Tile.Water; // Water barrier
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 4: SOUTH ZONE - Danger Zone (Y 51-99)
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Scatter some stone patches in the danger zone for atmosphere
+        var random = seed == 0 ? new Random() : new Random(seed);
+        for (int i = 0; i < 20; i++)
+        {
+            int patchX = random.Next(width);
+            int patchY = 55 + random.Next(40); // Y 55-94
+            int patchSize = random.Next(1, 3);
+
+            for (int dy = 0; dy < patchSize; dy++)
+            {
+                for (int dx = 0; dx < patchSize; dx++)
+                {
+                    int tx = patchX + dx;
+                    int ty = patchY + dy;
+                    if (tx < width && ty < height)
+                        location.Tiles[tx, ty] = Tile.Stone;
+                }
+            }
+        }
+
+        // Dirt paths in danger zone
+        for (int y = 51; y < 60; y++)
+        {
+            location.Tiles[24, y] = Tile.Dirt; // Path from bridge
+            location.Tiles[25, y] = Tile.Dirt;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // STEP 5: Add warp to Cabin at rightmost edge
-        // Player spawns at (5, 8) in Cabin
+        // ═══════════════════════════════════════════════════════════════════
         location.Warps.Add(Warp.FromTile(49, 25, "Cabin", 5, 8));
 
         return location;

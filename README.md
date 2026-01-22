@@ -133,7 +133,45 @@ MagicVille/
 
 ## Version History
 
-### v2.12 - Stabilization & Fixed Map (Current)
+### v2.13 - Pre-Graphics Combat (Current)
+
+**Enemy System** (`Enemy.cs`)
+- Base enemy class with chase AI (aggro range: 150px)
+- Health points, movement speed, contact damage
+- Knockback on taking damage
+- Hit flash effect (white) when damaged
+- Factory methods: `CreateGoblin()`, `CreateSlime()`, `CreateSkeleton()`
+
+**Map Expansion (50x100)**
+- **North Zone** (Y 0-49): Safe farming area (unchanged layout)
+- **The Divider** (Y=50): Water barrier with bridge gap (X 23-26)
+- **South Zone** (Y 51-99): Danger Zone with enemies
+
+**Combat System**
+- **Sword** weapon in slot 8 (replaces materials shuffle)
+- **Attack Hitbox**: Rectangle in front of player based on facing direction
+- **Melee Attack**: Left-click with sword equipped swings in facing direction
+- **Enemy Damage**: Sword deals 1 damage, applies knockback
+- **Player Damage**: Contact with enemies deals damage (1s i-frames)
+
+**Enemy Spawns (Danger Zone)**
+| Enemy | Position | HP | Speed |
+|-------|----------|----|----|
+| Goblin | (25, 75) | 3 | 60 |
+| Slime x2 | (15, 65), (35, 70) | 2 | 40 |
+| Goblin | (20, 85) | 3 | 60 |
+| Skeleton | (40, 80) | 5 | 45 |
+
+**Debug Visualization (F3)**
+- Red: Player and object collision bounds
+- Orange: Enemy bounding boxes
+- Yellow: Attack hitbox (when holding weapon)
+
+**Loot System**
+- 50% chance to drop gold on enemy death
+- Gold amount: 1-5 × enemy max HP
+
+### v2.12 - Stabilization & Fixed Map
 
 **Fixed 50x50 Farm Layout**
 - Deterministic map for controlled testing (replaces random generation)

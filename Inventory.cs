@@ -209,9 +209,11 @@ public class Inventory
         SetSlot(5, new Tool("earth_wand", "Earth Wand", "Magically tills soil with earth energy.", resourceCost: 1f, powerLevel: 2, staminaCost: 1f));
         SetSlot(6, new Tool("hydro_wand", "Hydro Wand", "Conjures water to nourish crops.", resourceCost: 1f, powerLevel: 2, affectsTileThroughObjects: true, staminaCost: 1f));
 
+        // Weapons (combat tools)
+        SetSlot(7, new Tool("sword", "Rusty Sword", "A basic sword for combat.", resourceCost: 0f, powerLevel: 1, staminaCost: 2f) { IsWeapon = true, AttackDamage = 1 });
+
         // Materials (with sell prices)
-        SetSlot(7, new Material("wood", "Wood", "Basic building material.", quantity: 25, sellPrice: 2));
-        SetSlot(8, new Material("stone", "Stone", "Hard and sturdy.", quantity: 15, sellPrice: 2));
-        // Slot 9 empty
+        SetSlot(8, new Material("wood", "Wood", "Basic building material.", quantity: 25, sellPrice: 2));
+        SetSlot(9, new Material("stone", "Stone", "Hard and sturdy.", quantity: 15, sellPrice: 2));
     }
 }

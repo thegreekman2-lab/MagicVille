@@ -474,6 +474,8 @@ public class InventoryMenu
             "pickaxe" => new Color(120, 120, 140),
             "watering_can" => new Color(80, 130, 200),
             "scythe" => new Color(180, 180, 100),
+            // Weapons
+            "sword" => new Color(200, 200, 220),    // Steel gray
             // Magic Wands
             "earth_wand" => new Color(180, 140, 60),
             "hydro_wand" => new Color(60, 180, 255),

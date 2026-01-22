@@ -41,6 +41,22 @@ public class Player : IRenderable
     /// <summary>Current stamina level. Depletes with tool use, restores on sleep.</summary>
     public float CurrentStamina { get; set; }
 
+    /// <summary>Maximum health points.</summary>
+    public int MaxHP { get; private set; } = 10;
+
+    /// <summary>Current health points.</summary>
+    public int CurrentHP { get; set; }
+
+    /// <summary>Invincibility frames after taking damage.</summary>
+    private float _invincibilityTimer;
+    private const float InvincibilityDuration = 1.0f;
+
+    /// <summary>Whether player is currently invincible (i-frames).</summary>
+    public bool IsInvincible => _invincibilityTimer > 0;
+
+    /// <summary>Whether player was recently hit (for flash effect).</summary>
+    public bool IsHit { get; private set; }
+
     /// <summary>
     /// Attempt to use stamina for an action.
     /// </summary>
@@ -68,12 +84,128 @@ public class Player : IRenderable
         CurrentStamina = MaxStamina;
     }
 
+    /// <summary>
+    /// Fully restore health (called on sleep/new day).
+    /// </summary>
+    public void RestoreHealth()
+    {
+        CurrentHP = MaxHP;
+    }
+
+    /// <summary>
+    /// Take damage from an enemy or hazard.
+    /// </summary>
+    /// <param name="damage">Amount of damage.</param>
+    /// <param name="sourcePosition">Position of damage source (for knockback).</param>
+    /// <returns>True if player died.</returns>
+    public bool TakeDamage(int damage, Vector2 sourcePosition)
+    {
+        if (IsInvincible)
+            return false;
+
+        CurrentHP -= damage;
+        IsHit = true;
+        _invincibilityTimer = InvincibilityDuration;
+
+        System.Diagnostics.Debug.WriteLine($"[Player] Ouch! Took {damage} damage. HP: {CurrentHP}/{MaxHP}");
+
+        // TODO: Apply knockback
+        // TODO: Play hurt sound
+
+        if (CurrentHP <= 0)
+        {
+            System.Diagnostics.Debug.WriteLine("[Player] Player defeated!");
+            // TODO: Handle death (respawn, game over screen, etc.)
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Update invincibility timer (call each frame).
+    /// </summary>
+    public void UpdateCombatTimers(float deltaTime)
+    {
+        if (_invincibilityTimer > 0)
+        {
+            _invincibilityTimer -= deltaTime;
+            IsHit = _invincibilityTimer > InvincibilityDuration - 0.15f; // Flash for first 0.15s
+        }
+    }
+
+    #endregion
+
+    #region Combat
+
+    /// <summary>Attack hitbox size (in pixels).</summary>
+    private const int AttackHitboxWidth = 48;
+    private const int AttackHitboxDepth = 32;
+
+    /// <summary>
+    /// Get the attack hitbox rectangle in front of the player.
+    /// Used for melee weapon collision detection.
+    /// </summary>
+    /// <returns>Rectangle representing the attack area.</returns>
+    public Rectangle GetAttackHitbox()
+    {
+        // Hitbox positioned in front of player based on facing direction
+        int offsetX = 0, offsetY = 0;
+
+        switch (Facing)
+        {
+            case Direction.Up:
+                offsetX = -AttackHitboxWidth / 2;
+                offsetY = -Height - AttackHitboxDepth;
+                return new Rectangle(
+                    (int)Position.X + offsetX,
+                    (int)Position.Y + offsetY,
+                    AttackHitboxWidth,
+                    AttackHitboxDepth
+                );
+
+            case Direction.Down:
+                offsetX = -AttackHitboxWidth / 2;
+                offsetY = 0;
+                return new Rectangle(
+                    (int)Position.X + offsetX,
+                    (int)Position.Y + offsetY,
+                    AttackHitboxWidth,
+                    AttackHitboxDepth
+                );
+
+            case Direction.Left:
+                offsetX = -Width / 2 - AttackHitboxDepth;
+                offsetY = -Height / 2 - AttackHitboxWidth / 2;
+                return new Rectangle(
+                    (int)Position.X + offsetX,
+                    (int)Position.Y + offsetY,
+                    AttackHitboxDepth,
+                    AttackHitboxWidth
+                );
+
+            case Direction.Right:
+                offsetX = Width / 2;
+                offsetY = -Height / 2 - AttackHitboxWidth / 2;
+                return new Rectangle(
+                    (int)Position.X + offsetX,
+                    (int)Position.Y + offsetY,
+                    AttackHitboxDepth,
+                    AttackHitboxWidth
+                );
+
+            default:
+                return Rectangle.Empty;
+        }
+    }
+
     #endregion
 
     public Player(Vector2 startPosition)
     {
         Position = startPosition;
         CurrentStamina = MaxStamina; // Start fully rested
+        CurrentHP = MaxHP; // Start at full health
         Inventory.GiveStarterItems();
     }
 
@@ -98,6 +230,10 @@ public class Player : IRenderable
     public void Update(GameTime gameTime, KeyboardState keyboard, Func<Rectangle, bool>? canMove = null, int mapWidth = 0, int mapHeight = 0)
     {
         float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+        // Update combat timers (invincibility frames)
+        UpdateCombatTimers(deltaTime);
+
         Vector2 movement = Vector2.Zero;
 
         // WASD and Arrow keys

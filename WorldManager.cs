@@ -25,8 +25,14 @@ public class WorldManager
     // Objects stored per-location for global persistence
     public Dictionary<string, List<WorldObject>> LocationObjects { get; private set; } = new();
 
+    // Enemies stored per-location
+    public Dictionary<string, List<Enemy>> LocationEnemies { get; private set; } = new();
+
     // Convenience accessor for current location's objects
     public List<WorldObject> Objects => LocationObjects.TryGetValue(CurrentLocationName, out var objs) ? objs : new();
+
+    // Convenience accessor for current location's enemies
+    public List<Enemy> Enemies => LocationEnemies.TryGetValue(CurrentLocationName, out var enemies) ? enemies : new();
 
     // World metadata
     public string CurrentLocationName => CurrentLocation?.Name ?? "Unknown";
@@ -456,7 +462,55 @@ public class WorldManager
         farmObjects.Add(WorldObject.CreateBush(GetAlignedPosition(8, 18, 40, 32)));
         farmObjects.Add(WorldObject.CreateBush(GetAlignedPosition(3, 25, 40, 32)));
 
+        // ═══════════════════════════════════════════════════════════════════
+        // DANGER ZONE (Y > 50) - South Zone with enemies
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Warning sign at bridge
+        farmObjects.Add(Sign.CreateAtTile(24, 48, "WARNING: Danger Zone ahead! Hostile creatures roam the southern lands."));
+
+        // Some rocks and trees in danger zone for cover
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(15, 60, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(30, 65, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(10, 75, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(40, 70, 48, 40)));
+
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(8, 58, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(42, 62, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(20, 80, 64, 96)));
+
         Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (fixed layout)");
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ENEMIES - Spawn in Danger Zone
+        // ═══════════════════════════════════════════════════════════════════
+        SpawnFarmEnemies();
+    }
+
+    /// <summary>
+    /// Spawn enemies for the Farm location (Danger Zone only).
+    /// </summary>
+    private void SpawnFarmEnemies()
+    {
+        // Ensure Farm has an enemy list
+        if (!LocationEnemies.ContainsKey("Farm"))
+            LocationEnemies["Farm"] = new List<Enemy>();
+        LocationEnemies["Farm"].Clear();
+
+        var farmEnemies = LocationEnemies["Farm"];
+
+        // Spawn enemies in the Danger Zone (Y > 50)
+        // Goblin at (25, 75) - main test enemy
+        farmEnemies.Add(Enemy.CreateGoblin(GetAlignedPosition(25, 75, 36, 40)));
+        Debug.WriteLine("[WorldManager] Spawned Goblin at tile (25, 75)");
+
+        // Additional enemies for variety
+        farmEnemies.Add(Enemy.CreateSlime(GetAlignedPosition(15, 65, 32, 28)));
+        farmEnemies.Add(Enemy.CreateSlime(GetAlignedPosition(35, 70, 32, 28)));
+        farmEnemies.Add(Enemy.CreateGoblin(GetAlignedPosition(20, 85, 36, 40)));
+        farmEnemies.Add(Enemy.CreateSkeleton(GetAlignedPosition(40, 80, 40, 48)));
+
+        Debug.WriteLine($"[WorldManager] Spawned {farmEnemies.Count} enemies in Danger Zone");
     }
 
     /// <summary>
@@ -545,10 +599,89 @@ public class WorldManager
         // Update targeting
         UpdateTargeting();
 
+        // Update enemies
+        UpdateEnemies(deltaTime);
+
         // Handle tool use on left click
         if (Input.IsLeftMousePressed())
         {
             TryUseTool();
+        }
+    }
+
+    /// <summary>
+    /// Update all enemies in the current location.
+    /// Handles AI, movement, and collision with player.
+    /// </summary>
+    private void UpdateEnemies(float deltaTime)
+    {
+        if (!LocationEnemies.TryGetValue(CurrentLocationName, out var enemies))
+            return;
+
+        var deadEnemies = new List<Enemy>();
+
+        foreach (var enemy in enemies)
+        {
+            // Update enemy AI (chasing, contact damage)
+            enemy.Update(Player, deltaTime, CanMoveEnemy);
+
+            // Track dead enemies for removal
+            if (enemy.IsDead)
+            {
+                deadEnemies.Add(enemy);
+            }
+        }
+
+        // Remove dead enemies and spawn loot
+        foreach (var dead in deadEnemies)
+        {
+            enemies.Remove(dead);
+            SpawnEnemyLoot(dead);
+            Debug.WriteLine($"[WorldManager] {dead.Name} removed from world");
+        }
+    }
+
+    /// <summary>
+    /// Check if an enemy can move to a position.
+    /// </summary>
+    private bool CanMoveEnemy(Rectangle bounds)
+    {
+        // Check tile collisions
+        if (!IsTileWalkable(bounds.Left, bounds.Top) ||
+            !IsTileWalkable(bounds.Right - 1, bounds.Top) ||
+            !IsTileWalkable(bounds.Left, bounds.Bottom - 1) ||
+            !IsTileWalkable(bounds.Right - 1, bounds.Bottom - 1))
+        {
+            return false;
+        }
+
+        // Check world object collisions
+        foreach (var obj in Objects)
+        {
+            if (obj.IsCollidable && bounds.Intersects(obj.BoundingBox))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Spawn loot when an enemy dies.
+    /// </summary>
+    private void SpawnEnemyLoot(Enemy enemy)
+    {
+        // Random chance to drop loot
+        var random = new Random();
+        if (random.NextDouble() < 0.5) // 50% chance
+        {
+            // For now, add gold directly
+            int goldDrop = random.Next(1, 5) * enemy.MaxHP;
+            Player.Gold += goldDrop;
+            Debug.WriteLine($"[Loot] {enemy.Name} dropped {goldDrop}g!");
+
+            // TODO: Spawn actual loot items on ground
         }
     }
 
@@ -666,6 +799,19 @@ public class WorldManager
             return;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // WEAPON ATTACK - Uses player hitbox instead of tile targeting
+        // ═══════════════════════════════════════════════════════════════════
+        if (tool.IsWeapon)
+        {
+            PerformWeaponAttack(tool);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TOOL USE - Standard tile-based interaction
+        // ═══════════════════════════════════════════════════════════════════
+
         // Range check
         if (!_targetInRange)
         {
@@ -683,6 +829,57 @@ public class WorldManager
 
         // Use the tool
         InteractWithTile(_targetTile, tool);
+    }
+
+    /// <summary>
+    /// Perform a melee weapon attack.
+    /// Uses hitbox in front of player based on facing direction.
+    /// </summary>
+    private void PerformWeaponAttack(Tool weapon)
+    {
+        // PAY-TO-SWING: Check and deduct stamina
+        if (weapon.StaminaCost > 0f && Player.CurrentStamina < weapon.StaminaCost)
+        {
+            Debug.WriteLine($"[{weapon.Name}] Too tired to swing!");
+            return;
+        }
+
+        if (weapon.StaminaCost > 0f)
+        {
+            Player.CurrentStamina -= weapon.StaminaCost;
+            Debug.WriteLine($"[Stamina] Spent {weapon.StaminaCost} on attack ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+        }
+
+        // Get attack hitbox
+        Rectangle attackHitbox = Player.GetAttackHitbox();
+        bool hitSomething = false;
+
+        // Check enemies in current location
+        if (LocationEnemies.TryGetValue(CurrentLocationName, out var enemies))
+        {
+            foreach (var enemy in enemies)
+            {
+                if (attackHitbox.Intersects(enemy.BoundingBox))
+                {
+                    // Hit! Deal damage
+                    enemy.TakeDamage(weapon.AttackDamage, Player.Center);
+                    hitSomething = true;
+                    Debug.WriteLine($"[Combat] {weapon.Name} hit {enemy.Name} for {weapon.AttackDamage} damage!");
+                }
+            }
+        }
+
+        // Feedback
+        if (hitSomething)
+        {
+            Debug.WriteLine($"[Audio] {weapon.Name}: *SLASH*");
+            // TODO: Play hit sound
+        }
+        else
+        {
+            Debug.WriteLine($"[Audio] {weapon.Name}: *woosh* (miss)");
+            // TODO: Play swing sound
+        }
     }
 
     /// <summary>
@@ -1148,8 +1345,8 @@ public class WorldManager
     /// </summary>
     private void DrawSorted(SpriteBatch spriteBatch)
     {
-        // Build list of all renderables
-        var renderables = new List<IRenderable>(Objects.Count + 1);
+        // Build list of all renderables (Objects + Enemies + Player)
+        var renderables = new List<IRenderable>(Objects.Count + Enemies.Count + 1);
 
         // Add player
         renderables.Add(Player);
@@ -1158,6 +1355,12 @@ public class WorldManager
         foreach (var obj in Objects)
         {
             renderables.Add(obj);
+        }
+
+        // Add all enemies
+        foreach (var enemy in Enemies)
+        {
+            renderables.Add(enemy);
         }
 
         // Sort by Y position (ascending = back to front)
@@ -1178,14 +1381,24 @@ public class WorldManager
 
     /// <summary>
     /// Draw 1px red borders around collision rectangles for debugging.
-    /// Shows Player.CollisionBounds and all WorldObject.BoundingBox.
+    /// Shows Player.CollisionBounds, WorldObject.BoundingBox, Enemy.BoundingBox, and attack hitbox.
     /// </summary>
     private void DrawDebugCollisions(SpriteBatch spriteBatch)
     {
         Color debugColor = Color.Red;
+        Color enemyColor = Color.Orange;
+        Color attackColor = Color.Yellow;
 
         // Draw player collision bounds
         DrawRectBorder(spriteBatch, Player.CollisionBounds, debugColor);
+
+        // Draw player attack hitbox (if holding a weapon)
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is Tool tool && tool.IsWeapon)
+        {
+            Rectangle attackHitbox = Player.GetAttackHitbox();
+            DrawRectBorder(spriteBatch, attackHitbox, attackColor);
+        }
 
         // Draw world object bounding boxes
         foreach (var obj in Objects)
@@ -1194,6 +1407,12 @@ public class WorldManager
             {
                 DrawRectBorder(spriteBatch, obj.BoundingBox, debugColor);
             }
+        }
+
+        // Draw enemy bounding boxes
+        foreach (var enemy in Enemies)
+        {
+            DrawRectBorder(spriteBatch, enemy.BoundingBox, enemyColor);
         }
     }
 
@@ -1519,6 +1738,8 @@ public class WorldManager
             "pickaxe" => new Color(120, 120, 140),
             "watering_can" => new Color(80, 130, 200),
             "scythe" => new Color(180, 180, 100),
+            // Weapons
+            "sword" => new Color(200, 200, 220),    // Steel gray
             // Magic Wands
             "earth_wand" => new Color(180, 140, 60),   // Golden brown (magical earth)
             "hydro_wand" => new Color(60, 180, 255),   // Bright cyan (magical water)

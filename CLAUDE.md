@@ -33,16 +33,50 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **WorldManager.Locations**: `Dictionary<string, GameLocation>` keeps all maps in memory
 - **Warp.cs**: Defines trigger zones and target positions for location transitions
 - **TransitionManager.cs**: State machine for fade-to-black transitions
-- Locations: "Farm" (50x50 fixed layout, v2.12), "Cabin" (10x10 indoor)
+- Locations: "Farm" (50x100 expanded layout, v2.13), "Cabin" (10x10 indoor)
 - State preserved when switching locations (no save/load needed for doors)
 
-### Fixed Farm Layout (v2.12)
-The Farm uses a deterministic 50x50 layout for controlled testing:
+### Fixed Farm Layout (v2.12+, expanded v2.13)
+The Farm uses a deterministic 50x100 layout with safe and danger zones:
+
+**North Zone (Y 0-49) - Safe**
 - **Lawn** (X < 30): Safe grass area, no stamina cost objects
 - **Garden** (15-25, 10-20): Tillable dirt, pre-planted test crops
 - **Forest** (X > 30): Trees, rocks, mana nodes for stamina testing
 - **Home Base** (~10,10): ShippingBin (12,12), Welcome Sign (12,14)
 - **Cabin Warp**: Stone path at (45-49, 25), warp at (49, 25)
+
+**The Divider (Y=50)**
+- Water barrier across entire width
+- Bridge gap at X 23-26 (stone tiles)
+
+**South Zone (Y 51-99) - Danger Zone**
+- Enemies spawn here (Goblins, Slimes, Skeletons)
+- Warning sign at bridge entrance
+- Sparse trees and rocks for cover
+
+### Combat System (v2.13)
+- **Enemy.cs**: Base enemy class with chase AI, contact damage, knockback
+- **Player combat**: HP system, i-frames after damage, attack hitbox
+- **WorldManager.LocationEnemies**: Per-location enemy lists
+- **Weapon tools**: `IsWeapon = true`, uses attack hitbox instead of tile targeting
+
+**Enemy AI Flow:**
+```csharp
+if (distanceToPlayer < AggroRange)
+    MoveTowardPlayer();
+if (BoundingBox.Intersects(Player.CollisionBounds))
+    Player.TakeDamage(ContactDamage);
+```
+
+**Weapon Attack Flow:**
+```csharp
+// In WorldManager.PerformWeaponAttack:
+Rectangle hitbox = Player.GetAttackHitbox(); // Based on facing
+foreach (enemy in Enemies)
+    if (hitbox.Intersects(enemy.BoundingBox))
+        enemy.TakeDamage(weapon.AttackDamage, Player.Center);
+```
 
 ### Player & Animation
 - **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position, stamina system
