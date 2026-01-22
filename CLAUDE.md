@@ -29,23 +29,49 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 - **Tile.cs**: Tile struct with ID and walkability. Types: Grass, Dirt, Water, Stone, WetDirt, Tilled, Wood, Wall
 - **Camera2D.cs**: 2D camera with dynamic viewport support for window resizing
 
-### Multi-Location System (v2.4)
+### Multi-Location System (v2.4+)
 - **WorldManager.Locations**: `Dictionary<string, GameLocation>` keeps all maps in memory
 - **Warp.cs**: Defines trigger zones and target positions for location transitions
 - **TransitionManager.cs**: State machine for fade-to-black transitions
-- Locations: "Farm" (20x20 outdoor), "Cabin" (10x10 indoor)
+- Locations: "Farm" (50x50 fixed layout, v2.12), "Cabin" (10x10 indoor)
 - State preserved when switching locations (no save/load needed for doors)
+
+### Fixed Farm Layout (v2.12)
+The Farm uses a deterministic 50x50 layout for controlled testing:
+- **Lawn** (X < 30): Safe grass area, no stamina cost objects
+- **Garden** (15-25, 10-20): Tillable dirt, pre-planted test crops
+- **Forest** (X > 30): Trees, rocks, mana nodes for stamina testing
+- **Home Base** (~10,10): ShippingBin (12,12), Welcome Sign (12,14)
+- **Cabin Warp**: Stone path at (45-49, 25), warp at (49, 25)
 
 ### Player & Animation
 - **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position, stamina system
 - **SpriteAnimator.cs**: Handles spritesheet animation with direction-based rows (Down, Up, Left, Right)
 
-### Stamina System (v2.10)
+### Stamina System (v2.10+, Smart Deduction v2.12)
 - **Player.MaxStamina**: Maximum energy capacity (default 100)
 - **Player.CurrentStamina**: Current energy level, depletes with tool use
-- **Player.TryUseStamina(cost)**: Returns true if enough stamina, deducts cost
 - **Recovery**: Full stamina restore on sleep/new day
 - **Persistence**: CurrentStamina saved/loaded to prevent save scumming
+
+**Smart Stamina Deduction (v2.12):**
+```csharp
+// In WorldManager.InteractWithTile:
+// 1. Pre-check: Block if insufficient stamina
+if (tool.StaminaCost > 0f && Player.CurrentStamina < tool.StaminaCost)
+    return; // "Too tired!" - no swing animation
+
+// 2. Attempt action, track success
+bool didHit = false;
+if (objectHit) didHit = true;
+if (tileChanged) didHit = true;
+
+// 3. Deduct only on success
+if (didHit && tool.StaminaCost > 0f)
+    Player.CurrentStamina -= tool.StaminaCost;
+```
+- Swinging at air/invalid tiles costs nothing
+- Stamina only consumed when tool actually does something
 
 ### Dialogue System (v2.11)
 - **DialogueSystem.cs**: Static manager for RPG-style text boxes

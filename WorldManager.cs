@@ -374,9 +374,13 @@ public class WorldManager
     #endregion
 
     /// <summary>
-    /// Spawn world objects for the Farm location.
-    /// Uses WorldSeed for reproducible placement.
-    /// Includes polymorphic objects: Trees, ManaNodes, Crops.
+    /// Spawn world objects for the Farm location (fixed 50x50 layout).
+    ///
+    /// ZONES:
+    /// - Home Base (10-14, 10-14): ShippingBin, Sign - safe area
+    /// - Garden (15-25, 10-20): Crops spawn here (tillable dirt)
+    /// - Forest (X > 30): Trees and rocks for stamina testing
+    /// - Lawn (X less than 30, not Garden): Safe grass for zero-cost testing
     /// </summary>
     private void SpawnFarmObjects()
     {
@@ -385,111 +389,74 @@ public class WorldManager
             LocationObjects["Farm"] = new List<WorldObject>();
         LocationObjects["Farm"].Clear();
 
-        // Use world seed for reproducible object placement
-        var random = new Random(WorldSeed + 1); // +1 to differ from map generation
-
-        int mapWidth = CurrentLocation.Width;
-        int mapHeight = CurrentLocation.Height;
-
-        // Helper to get valid tile coordinates (not on water, not too close to spawn, not on edges)
-        (int tileX, int tileY) GetValidTile()
-        {
-            for (int attempts = 0; attempts < 50; attempts++)
-            {
-                // Spawn within safe bounds (1 to Width-2, 1 to Height-2) to avoid edges
-                int tileX = random.Next(1, mapWidth - 1);
-                int tileY = random.Next(1, mapHeight - 1);
-
-                // Skip player spawn area (around 7,7)
-                if (Math.Abs(tileX - 7) < 3 && Math.Abs(tileY - 7) < 3)
-                    continue;
-
-                // Skip water tiles
-                var tile = CurrentLocation.GetTile(tileX, tileY);
-                if (tile.Id == Tile.Water.Id)
-                    continue;
-
-                return (tileX, tileY);
-            }
-            return (10, 10); // Fallback
-        }
-
         var farmObjects = LocationObjects["Farm"];
 
-        // Spawn 5 rocks (breakable with pickaxe) - 48x40, small so centered
-        for (int i = 0; i < 5; i++)
-        {
-            var (tx, ty) = GetValidTile();
-            var pos = GetAlignedPosition(tx, ty, 48, 40); // Rock dimensions
-            farmObjects.Add(WorldObject.CreateRock(pos));
-        }
+        // ═══════════════════════════════════════════════════════════════════
+        // HOME BASE AREA (around 10,10)
+        // ═══════════════════════════════════════════════════════════════════
 
-        // Spawn 3 ManaNode crystals (40x48, small-ish so centered)
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(ManaNode.CreateArcaneCrystal(GetAlignedPosition(tx, ty, 40, 48)));
-        }
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(ManaNode.CreateFireCrystal(GetAlignedPosition(tx, ty, 40, 48)));
-        }
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(ManaNode.CreateNatureCrystal(GetAlignedPosition(tx, ty, 40, 48)));
-        }
+        // Shipping Bin at (12, 12) - easy access
+        farmObjects.Add(ShippingBin.Create(12, 12));
+        Debug.WriteLine("[WorldManager] Spawned ShippingBin at tile (12, 12)");
 
-        // Spawn 2 mature trees (64x96, TALL so bottom-aligned) + 2 saplings (32x48)
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(tx, ty, 64, 96)));
-        }
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(tx, ty, 64, 96)));
-        }
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(Tree.CreateOakSapling(GetAlignedPosition(tx, ty, 32, 48)));
-        }
-        {
-            var (tx, ty) = GetValidTile();
-            farmObjects.Add(Tree.CreatePineSapling(GetAlignedPosition(tx, ty, 32, 48)));
-        }
+        // Welcome Sign at (12, 14)
+        farmObjects.Add(Sign.CreateAtTile(12, 14, "Welcome to the Farm! Press E to open your inventory. Click objects to interact with them."));
+        Debug.WriteLine("[WorldManager] Spawned Sign at tile (12, 14)");
 
-        // Spawn 3 bushes (40x32, small so centered)
-        for (int i = 0; i < 3; i++)
-        {
-            var (tx, ty) = GetValidTile();
-            var pos = GetAlignedPosition(tx, ty, 40, 32); // Bush dimensions
-            farmObjects.Add(WorldObject.CreateBush(pos));
-        }
+        // ═══════════════════════════════════════════════════════════════════
+        // GARDEN AREA (15-25, 10-20) - Test crops in tillable dirt
+        // ═══════════════════════════════════════════════════════════════════
 
-        // Spawn 2 test crops on tilled soil (32x16-48 depending on stage, small so centered)
-        // Crops start as seeds (32x16)
-        {
-            var (tileX, tileY) = GetValidTile();
-            CurrentLocation.SetTile(tileX, tileY, Tile.Tilled);
-            var pos = GetAlignedPosition(tileX, tileY, 32, 16); // Seed dimensions
-            farmObjects.Add(Crop.CreateCornSeed(pos, tileX, tileY));
-        }
-        {
-            var (tileX, tileY) = GetValidTile();
-            CurrentLocation.SetTile(tileX, tileY, Tile.Tilled);
-            var pos = GetAlignedPosition(tileX, tileY, 32, 16); // Seed dimensions
-            farmObjects.Add(Crop.CreateTomatoSeed(pos, tileX, tileY));
-        }
+        // Pre-plant some test crops in the garden
+        // Corn at (17, 12)
+        CurrentLocation.SetTile(17, 12, Tile.Tilled);
+        farmObjects.Add(Crop.CreateCornSeed(GetAlignedPosition(17, 12, 32, 16), 17, 12));
 
-        // Spawn Shipping Bin at fixed location near farm edge (easy to find)
-        // Position: tile (2, 2) - top-left area, accessible
-        farmObjects.Add(ShippingBin.Create(2, 2));
-        Debug.WriteLine("[WorldManager] Spawned ShippingBin at tile (2, 2)");
+        // Tomato at (19, 12)
+        CurrentLocation.SetTile(19, 12, Tile.Tilled);
+        farmObjects.Add(Crop.CreateTomatoSeed(GetAlignedPosition(19, 12, 32, 16), 19, 12));
 
-        // Spawn welcome Sign near player spawn area
-        // Position: tile (12, 5) - easily visible at game start
-        farmObjects.Add(Sign.CreateAtTile(12, 5, "Welcome to the Farm! Press E to open your inventory. Click objects to interact with them."));
-        Debug.WriteLine("[WorldManager] Spawned Sign at tile (12, 5)");
+        // Potato at (21, 12)
+        CurrentLocation.SetTile(21, 12, Tile.Tilled);
+        farmObjects.Add(Crop.CreatePotatoSeed(GetAlignedPosition(21, 12, 32, 16), 21, 12));
 
-        Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (seed: {WorldSeed})");
+        // ═══════════════════════════════════════════════════════════════════
+        // FOREST AREA (X > 30) - Trees and rocks for stamina testing
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Trees (64x96, tall so bottom-aligned)
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(32, 10, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(35, 12, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(38, 8, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(33, 18, 64, 96)));
+        farmObjects.Add(Tree.CreateMatureOak(GetAlignedPosition(40, 15, 64, 96)));
+
+        // Saplings (will grow over time)
+        farmObjects.Add(Tree.CreateOakSapling(GetAlignedPosition(36, 20, 32, 48)));
+        farmObjects.Add(Tree.CreatePineSapling(GetAlignedPosition(42, 12, 32, 48)));
+
+        // Rocks (48x40, small so centered) - breakable with pickaxe
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(34, 15, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(37, 10, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(41, 18, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(45, 14, 48, 40)));
+        farmObjects.Add(WorldObject.CreateRock(GetAlignedPosition(43, 22, 48, 40)));
+
+        // Mana Nodes (40x48) - in forest area
+        farmObjects.Add(ManaNode.CreateArcaneCrystal(GetAlignedPosition(35, 25, 40, 48)));
+        farmObjects.Add(ManaNode.CreateFireCrystal(GetAlignedPosition(40, 28, 40, 48)));
+        farmObjects.Add(ManaNode.CreateNatureCrystal(GetAlignedPosition(45, 20, 40, 48)));
+
+        // ═══════════════════════════════════════════════════════════════════
+        // DECORATIVE (Lawn area - X < 30, outside garden)
+        // ═══════════════════════════════════════════════════════════════════
+
+        // A few bushes scattered on the lawn
+        farmObjects.Add(WorldObject.CreateBush(GetAlignedPosition(5, 8, 40, 32)));
+        farmObjects.Add(WorldObject.CreateBush(GetAlignedPosition(8, 18, 40, 32)));
+        farmObjects.Add(WorldObject.CreateBush(GetAlignedPosition(3, 25, 40, 32)));
+
+        Debug.WriteLine($"[WorldManager] Spawned {farmObjects.Count} world objects (fixed layout)");
     }
 
     /// <summary>
@@ -734,17 +701,20 @@ public class WorldManager
     /// </summary>
     private void InteractWithTile(Point tileCoords, Tool tool)
     {
-        // STEP 0: Check stamina cost (skip free actions)
-        if (tool.StaminaCost > 0f)
+        // SMART STAMINA SYSTEM (v2.12):
+        // 1. Check if player HAS enough stamina first (early exit if exhausted)
+        // 2. Attempt the action
+        // 3. Only deduct stamina if the action SUCCEEDED
+
+        // STEP 0: Early stamina check (prevent swing if exhausted)
+        if (tool.StaminaCost > 0f && Player.CurrentStamina < tool.StaminaCost)
         {
-            if (!Player.TryUseStamina(tool.StaminaCost))
-            {
-                Debug.WriteLine($"[{tool.Name}] Too tired! Need {tool.StaminaCost} stamina (have {Player.CurrentStamina:F1})");
-                // TODO: Play "buzzer/error" sound effect
-                return;
-            }
-            Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+            Debug.WriteLine($"[{tool.Name}] Too tired! Need {tool.StaminaCost} stamina (have {Player.CurrentStamina:F1})");
+            // TODO: Play "buzzer/error" sound effect
+            return;
         }
+
+        bool didHit = false; // Track if any action succeeded
 
         // STEP 1: Check for world object at this tile
         var targetObject = GetObjectAtTile(tileCoords);
@@ -753,11 +723,19 @@ public class WorldManager
         if (targetObject != null)
         {
             bool objectHandled = InteractWithObject(targetObject, tool);
+            if (objectHandled)
+                didHit = true;
 
             // CRITICAL CHECK: Does this tool affect tiles through objects?
             if (!tool.AffectsTileThroughObjects)
             {
                 // Tool effect stops at the object (Pickaxe, Axe, Scythe, etc.)
+                // Deduct stamina if we hit the object
+                if (didHit && tool.StaminaCost > 0f)
+                {
+                    Player.CurrentStamina -= tool.StaminaCost;
+                    Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} on object ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+                }
                 return;
             }
 
@@ -770,21 +748,18 @@ public class WorldManager
 
         // STEP 3: Proceed with tile modification
         var currentTile = CurrentLocation.GetTile(tileCoords.X, tileCoords.Y);
+        bool tileChanged = false;
 
         switch (tool.RegistryKey)
         {
             case "hoe":
             case "earth_wand":
                 // Hoe/Earth Wand: Grass/Dirt → Tilled
-                if (currentTile.Id == Tile.Grass.Id)
+                if (currentTile.Id == Tile.Grass.Id || currentTile.Id == Tile.Dirt.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
-                    Debug.WriteLine($"[{tool.Name}] Tilled grass at ({tileCoords.X}, {tileCoords.Y})");
-                }
-                else if (currentTile.Id == Tile.Dirt.Id)
-                {
-                    CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Tilled);
-                    Debug.WriteLine($"[{tool.Name}] Tilled dirt at ({tileCoords.X}, {tileCoords.Y})");
+                    Debug.WriteLine($"[{tool.Name}] Tilled at ({tileCoords.X}, {tileCoords.Y})");
+                    tileChanged = true;
                 }
                 else
                 {
@@ -798,6 +773,7 @@ public class WorldManager
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.Dirt);
                     Debug.WriteLine($"[Pickaxe] Broke stone tile at ({tileCoords.X}, {tileCoords.Y})");
+                    tileChanged = true;
                 }
                 else
                 {
@@ -807,11 +783,16 @@ public class WorldManager
 
             case "watering_can":
             case "hydro_wand":
-                // Watering Can/Hydro Wand: Tilled/Dirt → WetDirt
-                if (currentTile.Id == Tile.Tilled.Id || currentTile.Id == Tile.Dirt.Id)
+                // Watering Can/Hydro Wand: Tilled → WetDirt (NOT grass, NOT already wet)
+                if (currentTile.Id == Tile.Tilled.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.WetDirt);
                     Debug.WriteLine($"[{tool.Name}] Watered soil at ({tileCoords.X}, {tileCoords.Y})");
+                    tileChanged = true;
+                }
+                else if (currentTile.Id == Tile.WetDirt.Id)
+                {
+                    Debug.WriteLine($"[{tool.Name}] Soil already wet at ({tileCoords.X}, {tileCoords.Y})");
                 }
                 else
                 {
@@ -820,18 +801,28 @@ public class WorldManager
                 break;
 
             case "axe":
-                // Axe: (future - chop trees/stumps)
+                // Axe: Only useful on objects (trees), nothing to do on tiles
                 Debug.WriteLine($"[Axe] Nothing to chop at ({tileCoords.X}, {tileCoords.Y})");
                 break;
 
             case "scythe":
-                // Scythe: (future - harvest crops)
+                // Scythe: Only useful on crops (objects), nothing to do on tiles
                 Debug.WriteLine($"[Scythe] Nothing to harvest at ({tileCoords.X}, {tileCoords.Y})");
                 break;
 
             default:
                 Debug.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
                 break;
+        }
+
+        // STEP 4: Deduct stamina if any action succeeded
+        if (tileChanged)
+            didHit = true;
+
+        if (didHit && tool.StaminaCost > 0f)
+        {
+            Player.CurrentStamina -= tool.StaminaCost;
+            Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} on tile ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
         }
     }
 

@@ -177,17 +177,24 @@ public class GameLocation
     }
 
     /// <summary>
-    /// Creates the Farm location (20x20 grass with features).
-    /// Includes a warp to the Cabin at tile (19, 10).
+    /// Creates the Farm location (50x50 fixed layout for controlled testing).
+    /// Replaces random generation with a deterministic map.
+    ///
+    /// LAYOUT:
+    /// - Lawn (0-29, all): Safe grass area for zero-cost testing
+    /// - Garden (15-25, 10-20): Tillable dirt plot
+    /// - Forest (30+, all): Trees and rocks for stamina testing
+    /// - Farmhouse area around (10, 10): Home base with ShippingBin, Sign
+    /// - Pond: Bottom-left corner
+    /// - Cabin entrance: Right edge
     /// </summary>
     public static GameLocation CreateFarm(int seed = 0)
     {
-        int width = 20;
-        int height = 20;
+        int width = 50;
+        int height = 50;
         var location = new GameLocation("Farm", width, height);
-        var random = seed == 0 ? new Random() : new Random(seed);
 
-        // Fill with grass
+        // STEP 1: Fill entire map with grass
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -196,44 +203,33 @@ public class GameLocation
             }
         }
 
-        // Add some dirt patches
-        int dirtPatches = random.Next(8, 12);
-        for (int i = 0; i < dirtPatches; i++)
+        // STEP 2: The Garden - tillable dirt plot (15-25, 10-20)
+        for (int y = 10; y <= 20; y++)
         {
-            int px = random.Next(width - 3);
-            int py = random.Next(height - 3);
-            int patchSize = random.Next(2, 4);
-
-            for (int dy = 0; dy < patchSize; dy++)
+            for (int x = 15; x <= 25; x++)
             {
-                for (int dx = 0; dx < patchSize; dx++)
-                {
-                    int tx = px + dx;
-                    int ty = py + dy;
-                    if (tx < width && ty < height)
-                        location.Tiles[tx, ty] = Tile.Dirt;
-                }
+                location.Tiles[x, y] = Tile.Dirt;
             }
         }
 
-        // Add a small pond in bottom-left
-        for (int y = height - 4; y < height; y++)
+        // STEP 3: Small pond in bottom-left (0-5, 44-49)
+        for (int y = 44; y < 50; y++)
         {
-            for (int x = 0; x < 4; x++)
+            for (int x = 0; x < 6; x++)
             {
                 location.Tiles[x, y] = Tile.Water;
             }
         }
 
-        // Mark the cabin entrance area (stone path to door)
-        for (int x = 17; x < width; x++)
+        // STEP 4: Stone path to cabin entrance (45-49, 25)
+        for (int x = 45; x < 50; x++)
         {
-            location.Tiles[x, 10] = Tile.Stone;
+            location.Tiles[x, 25] = Tile.Stone;
         }
 
-        // Add warp to Cabin at rightmost edge, middle height
-        // Player spawns at (5, 8) in Cabin - one tile away from return warp
-        location.Warps.Add(Warp.FromTile(19, 10, "Cabin", 5, 8));
+        // STEP 5: Add warp to Cabin at rightmost edge
+        // Player spawns at (5, 8) in Cabin
+        location.Warps.Add(Warp.FromTile(49, 25, "Cabin", 5, 8));
 
         return location;
     }

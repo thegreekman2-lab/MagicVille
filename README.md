@@ -133,7 +133,36 @@ MagicVille/
 
 ## Version History
 
-### v2.11 - Dialogue System (Current)
+### v2.12 - Stabilization & Fixed Map (Current)
+
+**Fixed 50x50 Farm Layout**
+- Deterministic map for controlled testing (replaces random generation)
+- **Zones**:
+  - **Lawn** (X < 30): Safe grass area for zero-cost testing
+  - **Garden** (15-25, 10-20): Tillable dirt plot with pre-planted crops
+  - **Forest** (X > 30): Trees, rocks, mana nodes for stamina testing
+  - **Home Base** (around 10,10): ShippingBin, Welcome Sign
+
+**Smart Stamina System**
+- **Pre-check**: Tool use blocked if stamina insufficient ("Too tired!")
+- **Hit Detection**: Track whether tool swing actually did something
+- **Deduction**: Stamina only consumed when action succeeds
+- **No Wasted Energy**: Swinging at air/invalid tiles costs nothing
+
+**Object Spawns (Fixed Layout)**
+| Zone | Objects |
+|------|---------|
+| Home Base | ShippingBin (12,12), Welcome Sign (12,14) |
+| Garden | Corn (17,12), Tomato (19,12), Potato (21,12) |
+| Forest | 5 Mature Oaks, 2 Saplings, 5 Rocks, 3 Mana Nodes |
+| Lawn | 3 Decorative Bushes |
+
+**Code Quality**
+- Clean separation of concerns in WorldManager
+- Event-driven UI (ShippingBin, Dialogue)
+- View-Model pattern in InventoryMenu
+
+### v2.11 - Dialogue System
 
 **Narrative Layer**
 - `GameState.Dialogue`: World paused while reading text
