@@ -701,41 +701,54 @@ public class WorldManager
     /// </summary>
     private void InteractWithTile(Point tileCoords, Tool tool)
     {
-        // SMART STAMINA SYSTEM (v2.12):
-        // 1. Check if player HAS enough stamina first (early exit if exhausted)
-        // 2. Attempt the action
-        // 3. Only deduct stamina if the action SUCCEEDED
+        // ═══════════════════════════════════════════════════════════════════
+        // PAY-TO-SWING STAMINA SYSTEM (Stardew Style)
+        // ═══════════════════════════════════════════════════════════════════
+        // Philosophy: Swinging costs energy regardless of whether you hit anything.
+        // This creates resource management tension - don't spam clicks carelessly!
+        //
+        // Flow:
+        // 1. PRE-CHECK: Block if exhausted (can't even swing)
+        // 2. COMMITMENT: Deduct stamina immediately (you swung!)
+        // 3. APPLICATION: Try to affect world (object or tile)
+        // 4. FEEDBACK: Track hit/miss for sound effects
+        // ═══════════════════════════════════════════════════════════════════
 
-        // STEP 0: Early stamina check (prevent swing if exhausted)
+        // STEP 1: PRE-CHECK - Block if too tired to swing
         if (tool.StaminaCost > 0f && Player.CurrentStamina < tool.StaminaCost)
         {
             Debug.WriteLine($"[{tool.Name}] Too tired! Need {tool.StaminaCost} stamina (have {Player.CurrentStamina:F1})");
-            // TODO: Play "buzzer/error" sound effect
+            // TODO: Play "error/buzz" sound
             return;
         }
 
-        bool didHit = false; // Track if any action succeeded
+        // STEP 2: COMMITMENT - Deduct stamina immediately (you're swinging!)
+        if (tool.StaminaCost > 0f)
+        {
+            Player.CurrentStamina -= tool.StaminaCost;
+            Debug.WriteLine($"[Stamina] Spent {tool.StaminaCost} ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+        }
 
-        // STEP 1: Check for world object at this tile
+        // TODO: STEP 3: ANIMATION - Trigger tool swing animation
+        // Player.PlayToolAnimation(tool.RegistryKey);
+
+        bool hitSomething = false; // Track for sound feedback
+
+        // STEP 4: APPLICATION - Check for world object at this tile
         var targetObject = GetObjectAtTile(tileCoords);
 
-        // STEP 2: If object exists, interact with it
+        // If object exists, interact with it
         if (targetObject != null)
         {
             bool objectHandled = InteractWithObject(targetObject, tool);
             if (objectHandled)
-                didHit = true;
+                hitSomething = true;
 
-            // CRITICAL CHECK: Does this tool affect tiles through objects?
+            // Does this tool affect tiles through objects?
             if (!tool.AffectsTileThroughObjects)
             {
                 // Tool effect stops at the object (Pickaxe, Axe, Scythe, etc.)
-                // Deduct stamina if we hit the object
-                if (didHit && tool.StaminaCost > 0f)
-                {
-                    Player.CurrentStamina -= tool.StaminaCost;
-                    Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} on object ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
-                }
+                PlayToolFeedback(tool, hitSomething);
                 return;
             }
 
@@ -746,7 +759,7 @@ public class WorldManager
             }
         }
 
-        // STEP 3: Proceed with tile modification
+        // STEP 5: TILE MODIFICATION
         var currentTile = CurrentLocation.GetTile(tileCoords.X, tileCoords.Y);
         bool tileChanged = false;
 
@@ -761,10 +774,6 @@ public class WorldManager
                     Debug.WriteLine($"[{tool.Name}] Tilled at ({tileCoords.X}, {tileCoords.Y})");
                     tileChanged = true;
                 }
-                else
-                {
-                    Debug.WriteLine($"[{tool.Name}] Can't till this tile (ID: {currentTile.Id})");
-                }
                 break;
 
             case "pickaxe":
@@ -775,54 +784,46 @@ public class WorldManager
                     Debug.WriteLine($"[Pickaxe] Broke stone tile at ({tileCoords.X}, {tileCoords.Y})");
                     tileChanged = true;
                 }
-                else
-                {
-                    Debug.WriteLine($"[Pickaxe] Nothing to break at ({tileCoords.X}, {tileCoords.Y})");
-                }
                 break;
 
             case "watering_can":
             case "hydro_wand":
-                // Watering Can/Hydro Wand: Tilled → WetDirt (NOT grass, NOT already wet)
+                // Watering Can/Hydro Wand: Tilled → WetDirt
                 if (currentTile.Id == Tile.Tilled.Id)
                 {
                     CurrentLocation.SetTile(tileCoords.X, tileCoords.Y, Tile.WetDirt);
                     Debug.WriteLine($"[{tool.Name}] Watered soil at ({tileCoords.X}, {tileCoords.Y})");
                     tileChanged = true;
                 }
-                else if (currentTile.Id == Tile.WetDirt.Id)
-                {
-                    Debug.WriteLine($"[{tool.Name}] Soil already wet at ({tileCoords.X}, {tileCoords.Y})");
-                }
-                else
-                {
-                    Debug.WriteLine($"[{tool.Name}] Can't water this tile (ID: {currentTile.Id})");
-                }
                 break;
 
             case "axe":
-                // Axe: Only useful on objects (trees), nothing to do on tiles
-                Debug.WriteLine($"[Axe] Nothing to chop at ({tileCoords.X}, {tileCoords.Y})");
-                break;
-
             case "scythe":
-                // Scythe: Only useful on crops (objects), nothing to do on tiles
-                Debug.WriteLine($"[Scythe] Nothing to harvest at ({tileCoords.X}, {tileCoords.Y})");
-                break;
-
-            default:
-                Debug.WriteLine($"[Tool] Unknown tool: {tool.RegistryKey}");
+                // These only work on objects, no tile effect
                 break;
         }
 
-        // STEP 4: Deduct stamina if any action succeeded
         if (tileChanged)
-            didHit = true;
+            hitSomething = true;
 
-        if (didHit && tool.StaminaCost > 0f)
+        // STEP 6: FEEDBACK - Play appropriate sound
+        PlayToolFeedback(tool, hitSomething);
+    }
+
+    /// <summary>
+    /// Play audio feedback based on whether the tool hit something.
+    /// </summary>
+    private void PlayToolFeedback(Tool tool, bool hitSomething)
+    {
+        if (hitSomething)
         {
-            Player.CurrentStamina -= tool.StaminaCost;
-            Debug.WriteLine($"[Stamina] Used {tool.StaminaCost} on tile ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+            // TODO: Play "impact/work" sound based on tool type
+            Debug.WriteLine($"[Audio] {tool.Name}: *IMPACT*");
+        }
+        else
+        {
+            // TODO: Play "woosh/miss" sound
+            Debug.WriteLine($"[Audio] {tool.Name}: *woosh* (miss)");
         }
     }
 

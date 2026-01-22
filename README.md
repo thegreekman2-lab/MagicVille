@@ -143,11 +143,12 @@ MagicVille/
   - **Forest** (X > 30): Trees, rocks, mana nodes for stamina testing
   - **Home Base** (around 10,10): ShippingBin, Welcome Sign
 
-**Smart Stamina System**
+**Pay-to-Swing Stamina (Stardew Style)**
 - **Pre-check**: Tool use blocked if stamina insufficient ("Too tired!")
-- **Hit Detection**: Track whether tool swing actually did something
-- **Deduction**: Stamina only consumed when action succeeds
-- **No Wasted Energy**: Swinging at air/invalid tiles costs nothing
+- **Commitment**: Stamina deducted immediately upon swinging
+- **Application**: Tool effect applied to object/tile
+- **Feedback**: Hit = impact sound, Miss = woosh sound
+- **Philosophy**: Swinging always costs energy - don't spam clicks carelessly!
 
 **Object Spawns (Fixed Layout)**
 | Zone | Objects |

@@ -48,30 +48,35 @@ The Farm uses a deterministic 50x50 layout for controlled testing:
 - **Player.cs**: Player entity with WASD movement, sprite animation, feet-based position, stamina system
 - **SpriteAnimator.cs**: Handles spritesheet animation with direction-based rows (Down, Up, Left, Right)
 
-### Stamina System (v2.10+, Smart Deduction v2.12)
+### Stamina System (v2.10+, Pay-to-Swing v2.12)
 - **Player.MaxStamina**: Maximum energy capacity (default 100)
 - **Player.CurrentStamina**: Current energy level, depletes with tool use
 - **Recovery**: Full stamina restore on sleep/new day
 - **Persistence**: CurrentStamina saved/loaded to prevent save scumming
 
-**Smart Stamina Deduction (v2.12):**
+**Pay-to-Swing (Stardew Style, v2.12):**
 ```csharp
 // In WorldManager.InteractWithTile:
-// 1. Pre-check: Block if insufficient stamina
+// Philosophy: Swinging costs energy regardless of success.
+// This creates resource management tension!
+
+// 1. PRE-CHECK: Block if exhausted
 if (tool.StaminaCost > 0f && Player.CurrentStamina < tool.StaminaCost)
-    return; // "Too tired!" - no swing animation
+    return; // "Too tired!" - can't even swing
 
-// 2. Attempt action, track success
-bool didHit = false;
-if (objectHit) didHit = true;
-if (tileChanged) didHit = true;
+// 2. COMMITMENT: Deduct immediately (you're swinging!)
+Player.CurrentStamina -= tool.StaminaCost;
 
-// 3. Deduct only on success
-if (didHit && tool.StaminaCost > 0f)
-    Player.CurrentStamina -= tool.StaminaCost;
+// 3. APPLICATION: Try to affect world
+bool hitSomething = TryAffectObjectOrTile(targetObject, tile);
+
+// 4. FEEDBACK: Play appropriate sound
+if (hitSomething) PlayImpactSound();
+else PlayWooshSound(); // Miss
 ```
-- Swinging at air/invalid tiles costs nothing
-- Stamina only consumed when tool actually does something
+- Swinging always costs energy (even at air)
+- Creates strategic tension - don't spam clicks carelessly
+- Feedback sounds communicate hit vs miss
 
 ### Dialogue System (v2.11)
 - **DialogueSystem.cs**: Static manager for RPG-style text boxes
