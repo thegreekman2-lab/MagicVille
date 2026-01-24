@@ -771,7 +771,8 @@ public class WorldManager
     }
 
     /// <summary>
-    /// Check if a world position is solid (for projectile collision).
+    /// Check if a world position is solid (for projectile/raycast collision).
+    /// Checks BOTH terrain tiles AND world objects (trees, rocks, etc.).
     /// </summary>
     private bool IsTileSolidForProjectile(Vector2 worldPos)
     {
@@ -785,9 +786,56 @@ public class WorldManager
             return true;
         }
 
-        // Non-walkable tiles are solid
+        // Check 1: Terrain - Non-walkable tiles are solid (walls, water)
         var tile = CurrentLocation.GetTile(tileX, tileY);
-        return !tile.Walkable;
+        if (!tile.Walkable)
+        {
+            return true;
+        }
+
+        // Check 2: World Objects - Trees, rocks, and other collidable objects
+        if (IsPositionBlockedByObject(worldPos))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a world position intersects with any collidable world object.
+    /// Used for projectile and raycast collision with trees, rocks, etc.
+    /// </summary>
+    private bool IsPositionBlockedByObject(Vector2 worldPos)
+    {
+        // Create a small hitbox at the position (4x4 pixel point)
+        var pointRect = new Rectangle(
+            (int)worldPos.X - 2,
+            (int)worldPos.Y - 2,
+            4,
+            4
+        );
+
+        foreach (var obj in Objects)
+        {
+            // Skip non-collidable objects (crops, etc.)
+            if (!obj.IsCollidable)
+                continue;
+
+            // Skip objects that projectiles should pass through
+            // (e.g., bushes - small and soft)
+            if (obj.Name == "bush")
+                continue;
+
+            // Check if the point intersects the object's bounding box
+            if (pointRect.Intersects(obj.BoundingBox))
+            {
+                Debug.WriteLine($"[Collision] Projectile blocked by {obj.Name} at ({worldPos.X:F0}, {worldPos.Y:F0})");
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -996,7 +1044,20 @@ public class WorldManager
     private void TryUseTool()
     {
         // ═══════════════════════════════════════════════════════════════════
-        // STEP 0: Range and bounds validation (applies to all interactions)
+        // PRIORITY CHECK: WEAPONS BYPASS RANGE/TILE VALIDATION
+        // Combat weapons (Sword, Wand, Staff) use mouse aiming with clamped
+        // range - they don't need valid tile targeting. Fire toward cursor!
+        // ═══════════════════════════════════════════════════════════════════
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is Tool weapon && weapon.IsWeapon)
+        {
+            // Weapons work regardless of cursor color/range
+            PerformWeaponAttack(weapon);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // FARMING TOOLS: Require valid tile targeting (range + bounds check)
         // ═══════════════════════════════════════════════════════════════════
         if (!_targetInRange)
         {
@@ -1033,23 +1094,15 @@ public class WorldManager
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // STEP 3: TOOL/WEAPON USE (Requires holding a tool, costs stamina)
+        // STEP 3: FARMING TOOL USE (Requires holding a farming tool)
         // ═══════════════════════════════════════════════════════════════════
-        var activeItem = Player.Inventory.GetActiveItem();
         if (activeItem is not Tool tool)
         {
             Debug.WriteLine("[Interact] No tool selected");
             return;
         }
 
-        // Weapon attack uses hitbox, not tile targeting
-        if (tool.IsWeapon)
-        {
-            PerformWeaponAttack(tool);
-            return;
-        }
-
-        // Standard tool use
+        // Standard tool use (farming tools only reach here)
         InteractWithTile(_targetTile, tool);
     }
 
