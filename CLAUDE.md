@@ -55,11 +55,86 @@ The Farm uses a deterministic 50x100 layout with safe and danger zones:
 - Warning sign at bridge entrance
 - Sparse trees and rocks for cover
 
-### Combat System (v2.13)
+### Combat System (v2.13+)
 - **Enemy.cs**: Base enemy class with chase AI, contact damage, knockback
-- **Player combat**: HP system, i-frames after damage, attack hitbox
-- **WorldManager.LocationEnemies**: Per-location enemy lists
-- **Weapon tools**: `IsWeapon = true`, uses attack hitbox instead of tile targeting
+- **Projectile.cs**: Moving projectiles with wall/enemy collision (v2.13)
+- **Player combat**: HP system, i-frames, attack cooldown, directional helpers
+- **WorldManager**: Manages enemies, projectiles, and attack logic per-location
+
+**Attack Style System (v2.13):**
+```csharp
+public enum AttackStyle { None, Melee, Projectile, Raycast }
+
+public class Tool : Item
+{
+    public AttackStyle Style { get; init; }  // How damage is dealt
+    public int Damage { get; init; }          // Base damage
+    public float Range { get; init; }         // Melee reach or raycast distance
+    public float ProjectileSpeed { get; init; } // Projectile velocity
+    public float Cooldown { get; init; }      // Seconds between attacks
+}
+```
+
+**Three Attack Modes:**
+
+| Style | Weapon Example | Behavior |
+|-------|---------------|----------|
+| Melee | Iron Sword | Creates hitbox in facing direction, instant hit |
+| Projectile | Fire Wand | Spawns moving projectile, hits first enemy |
+| Raycast | Lightning Staff | Instant line hit to first enemy in range |
+
+**Weapon Factory Methods:**
+```csharp
+// Slot 5: Melee weapon
+Tool.CreateMeleeWeapon("sword", "Iron Sword", ..., damage: 2);
+
+// Slot 6: Projectile weapon
+Tool.CreateProjectileWeapon("fire_wand", "Fire Wand", ..., damage: 3);
+
+// Slot 7: Raycast weapon
+Tool.CreateRaycastWeapon("lightning_staff", "Lightning Staff", ..., damage: 4);
+```
+
+**Projectile System:**
+```csharp
+public class Projectile : IRenderable
+{
+    public Vector2 Position, Velocity;
+    public int Damage;
+    public bool IsActive;
+
+    public bool Update(deltaTime, enemies, isTileSolid)
+    {
+        Position += Velocity * deltaTime;
+        if (isTileSolid(Position)) return destroy;
+        foreach (enemy) if (hit) { enemy.TakeDamage(); return destroy; }
+    }
+}
+```
+
+**Attack Flow (WorldManager.PerformWeaponAttack):**
+```csharp
+switch (weapon.Style)
+{
+    case AttackStyle.Melee:
+        Rectangle hitbox = Player.GetAttackHitbox(weapon.HitboxWidth, weapon.HitboxHeight);
+        foreach (enemy) if (hitbox.Intersects(enemy.BoundingBox))
+            enemy.TakeDamage(weapon.Damage, Player.Center);
+        break;
+
+    case AttackStyle.Projectile:
+        var projectile = new Projectile(Player.GetProjectileSpawnPoint(),
+            Player.GetFacingVector() * weapon.ProjectileSpeed, weapon.Damage);
+        Projectiles.Add(projectile);
+        break;
+
+    case AttackStyle.Raycast:
+        // Instant line trace, hit first enemy
+        if (RayIntersectsEnemy(Player.Center, Player.GetFacingVector(), weapon.Range))
+            enemy.TakeDamage(weapon.Damage);
+        break;
+}
+```
 
 **Enemy AI Flow:**
 ```csharp
@@ -67,15 +142,6 @@ if (distanceToPlayer < AggroRange)
     MoveTowardPlayer();
 if (BoundingBox.Intersects(Player.CollisionBounds))
     Player.TakeDamage(ContactDamage);
-```
-
-**Weapon Attack Flow:**
-```csharp
-// In WorldManager.PerformWeaponAttack:
-Rectangle hitbox = Player.GetAttackHitbox(); // Based on facing
-foreach (enemy in Enemies)
-    if (hitbox.Intersects(enemy.BoundingBox))
-        enemy.TakeDamage(weapon.AttackDamage, Player.Center);
 ```
 
 ### Player & Animation
@@ -131,9 +197,10 @@ else PlayWooshSound(); // Miss
 
 ### Item System (Polymorphic)
 - **Item.cs**: Abstract base class with `[JsonPolymorphic]` for serialization
-- **Tool.cs**: Tools with ResourceCost, PowerLevel, StaminaCost, AffectsTileThroughObjects
+- **Tool.cs**: Tools with farming properties (ResourceCost, PowerLevel, StaminaCost) and combat properties (AttackStyle, Damage, Range, Cooldown)
 - **Material.cs**: Stackable items with Quantity and MaxStack (Wood, Stone, Corn, Tomato, etc.)
 - **Inventory.cs**: 10-slot hotbar with stacking logic, slot selection, and `AddItem()` returns bool for full inventory handling
+- **Projectile.cs**: Moving projectiles with lifetime, wall collision, enemy collision (v2.13)
 
 **Tool Stamina Costs (v2.10):**
 | Tool | Stamina Cost |

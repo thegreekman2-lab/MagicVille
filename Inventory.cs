@@ -195,24 +195,59 @@ public class Inventory
     /// <summary>Give starter items for new game.</summary>
     public void GiveStarterItems()
     {
-        // Standard Tools with stamina costs
+        // ═══════════════════════════════════════════════════════════════════
+        // FARMING TOOLS (Slots 0-4)
         // Stamina: Hoe=3, Axe=4, Pickaxe=4, WateringCan=2, Scythe=0 (free)
+        // ═══════════════════════════════════════════════════════════════════
         SetSlot(0, new Tool("hoe", "Hoe", "Tills soil for planting.", resourceCost: 2f, powerLevel: 1, staminaCost: 3f));
         SetSlot(1, new Tool("axe", "Axe", "Chops wood from trees.", resourceCost: 3f, powerLevel: 1, staminaCost: 4f));
         SetSlot(2, new Tool("pickaxe", "Pickaxe", "Breaks rocks and ore.", resourceCost: 3f, powerLevel: 1, staminaCost: 4f));
+        SetSlot(3, new Tool("watering_can", "Watering Can", "Waters crops.", resourceCost: 1f, powerLevel: 1, affectsTileThroughObjects: true, staminaCost: 2f));
         SetSlot(4, new Tool("scythe", "Scythe", "Harvests crops.", resourceCost: 1f, powerLevel: 1, staminaCost: 0f));
 
-        // Watering Tools (affectsTileThroughObjects: true - waters crop AND wets tile)
-        SetSlot(3, new Tool("watering_can", "Watering Can", "Waters crops.", resourceCost: 1f, powerLevel: 1, affectsTileThroughObjects: true, staminaCost: 2f));
+        // ═══════════════════════════════════════════════════════════════════
+        // COMBAT WEAPONS (Slots 5-7) - Test the 3 attack styles
+        // ═══════════════════════════════════════════════════════════════════
 
-        // Magic Wands (lower stamina cost due to magical efficiency)
-        SetSlot(5, new Tool("earth_wand", "Earth Wand", "Magically tills soil with earth energy.", resourceCost: 1f, powerLevel: 2, staminaCost: 1f));
-        SetSlot(6, new Tool("hydro_wand", "Hydro Wand", "Conjures water to nourish crops.", resourceCost: 1f, powerLevel: 2, affectsTileThroughObjects: true, staminaCost: 1f));
+        // MELEE: Sword - Creates hitbox in facing direction
+        SetSlot(5, Tool.CreateMeleeWeapon(
+            registryKey: "sword",
+            name: "Iron Sword",
+            description: "A sturdy blade for close combat.",
+            damage: 2,
+            range: 48f,
+            cooldown: 0.3f,
+            staminaCost: 2f,
+            hitboxWidth: 48,
+            hitboxHeight: 32
+        ));
 
-        // Weapons (combat tools)
-        SetSlot(7, new Tool("sword", "Rusty Sword", "A basic sword for combat.", resourceCost: 0f, powerLevel: 1, staminaCost: 2f) { IsWeapon = true, AttackDamage = 1 });
+        // PROJECTILE: Fire Wand - Shoots fireballs
+        SetSlot(6, Tool.CreateProjectileWeapon(
+            registryKey: "fire_wand",
+            name: "Fire Wand",
+            description: "Hurls fireballs at your foes.",
+            damage: 3,
+            projectileSpeed: 300f,
+            cooldown: 0.5f,
+            staminaCost: 4f,
+            projectileColor: 0xFFFF6600 // Orange-red
+        ));
 
-        // Materials (with sell prices)
+        // RAYCAST: Lightning Staff - Instant zap in a line
+        SetSlot(7, Tool.CreateRaycastWeapon(
+            registryKey: "lightning_staff",
+            name: "Lightning Staff",
+            description: "Channels lightning to strike instantly.",
+            damage: 4,
+            range: 200f,
+            cooldown: 0.8f,
+            staminaCost: 6f
+        ));
+
+        // ═══════════════════════════════════════════════════════════════════
+        // MATERIALS (Slots 8-9)
+        // ═══════════════════════════════════════════════════════════════════
         SetSlot(8, new Material("wood", "Wood", "Basic building material.", quantity: 25, sellPrice: 2));
         SetSlot(9, new Material("stone", "Stone", "Hard and sturdy.", quantity: 15, sellPrice: 2));
     }

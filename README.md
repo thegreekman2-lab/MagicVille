@@ -96,6 +96,8 @@ MagicVille/
 ├── ShippingMenu.cs     # Shipping bin UI (Stardew-style drag-and-drop)
 ├── Sign.cs             # Readable sign world object
 ├── DialogueSystem.cs   # Static dialogue manager with typewriter effect
+├── Enemy.cs            # Enemy class with chase AI and combat
+├── Projectile.cs       # Moving projectiles for ranged weapons
 ├── IRenderable.cs      # Interface for Y-sortable entities
 ├── SaveData.cs         # Serializable game state DTO
 ├── TileSaveData.cs     # Serializable modified tile data
@@ -133,26 +135,48 @@ MagicVille/
 
 ## Version History
 
-### v2.13 - Pre-Graphics Combat (Current)
+### v2.13 - Combat Engine (Current)
+
+**Attack Style System** (`Tool.cs`)
+Three weapon attack modes for variety in combat:
+
+| Style | Example | Behavior |
+|-------|---------|----------|
+| **Melee** | Iron Sword | Creates hitbox in facing direction, instant hit |
+| **Projectile** | Fire Wand | Spawns moving fireball, hits first enemy |
+| **Raycast** | Lightning Staff | Instant line hit to first enemy in range |
+
+**Weapon Properties**
+```
+AttackStyle Style      - How damage is dealt (Melee/Projectile/Raycast)
+int Damage             - Base damage per hit
+float Range            - Melee reach or raycast distance
+float ProjectileSpeed  - Velocity for projectile weapons
+float Cooldown         - Seconds between attacks
+```
+
+**Projectile System** (`Projectile.cs`)
+- Moving projectiles with trail visual effect
+- Wall collision → destroy projectile
+- Enemy collision → deal damage + destroy
+- Lifetime limit (5 seconds max)
+
+**Test Weapons (Slots 5-7)**
+| Slot | Weapon | Style | Damage | Special |
+|------|--------|-------|--------|---------|
+| 5 | Iron Sword | Melee | 2 | 48x32 hitbox, 0.3s cooldown |
+| 6 | Fire Wand | Projectile | 3 | 300 speed, orange fireballs |
+| 7 | Lightning Staff | Raycast | 4 | 200 range, instant zap |
 
 **Enemy System** (`Enemy.cs`)
-- Base enemy class with chase AI (aggro range: 150px)
-- Health points, movement speed, contact damage
-- Knockback on taking damage
-- Hit flash effect (white) when damaged
+- Chase AI (aggro range: 150px)
+- Health, speed, contact damage, knockback
 - Factory methods: `CreateGoblin()`, `CreateSlime()`, `CreateSkeleton()`
 
 **Map Expansion (50x100)**
-- **North Zone** (Y 0-49): Safe farming area (unchanged layout)
+- **North Zone** (Y 0-49): Safe farming area
 - **The Divider** (Y=50): Water barrier with bridge gap (X 23-26)
 - **South Zone** (Y 51-99): Danger Zone with enemies
-
-**Combat System**
-- **Sword** weapon in slot 8 (replaces materials shuffle)
-- **Attack Hitbox**: Rectangle in front of player based on facing direction
-- **Melee Attack**: Left-click with sword equipped swings in facing direction
-- **Enemy Damage**: Sword deals 1 damage, applies knockback
-- **Player Damage**: Contact with enemies deals damage (1s i-frames)
 
 **Enemy Spawns (Danger Zone)**
 | Enemy | Position | HP | Speed |
@@ -162,10 +186,10 @@ MagicVille/
 | Goblin | (20, 85) | 3 | 60 |
 | Skeleton | (40, 80) | 5 | 45 |
 
-**Debug Visualization (F3)**
-- Red: Player and object collision bounds
-- Orange: Enemy bounding boxes
-- Yellow: Attack hitbox (when holding weapon)
+**Debug Visualization**
+- F3: Toggle collision boxes (Red=player, Orange=enemies)
+- Melee attacks show red hitbox (0.2s)
+- Raycast attacks show cyan line (0.1s)
 
 **Loot System**
 - 50% chance to drop gold on enemy death
@@ -435,12 +459,12 @@ MagicVille/
 ## What's NOT Built Yet (Future Versions)
 
 - Seed items and planting system (currently crops spawn pre-planted)
-- Item drops from trees (wood) and rocks (stone)
 - Item Database for centralized item definitions
-- Player energy/stamina system
 - NPCs and dialogue
 - Sound effects and music
 - RenderTarget-based lighting (v3)
+- Enemy AI variations (patrol, ranged attacks)
+- Player death/respawn system
 
 ## License
 

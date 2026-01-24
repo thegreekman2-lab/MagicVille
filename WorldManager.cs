@@ -28,6 +28,18 @@ public class WorldManager
     // Enemies stored per-location
     public Dictionary<string, List<Enemy>> LocationEnemies { get; private set; } = new();
 
+    // Projectiles in current location (not persisted - cleared on location change)
+    public List<Projectile> Projectiles { get; private set; } = new();
+
+    // Debug visualization data
+    private Rectangle? _debugMeleeHitbox;
+    private float _debugMeleeHitboxTimer;
+    private Vector2? _debugRayStart;
+    private Vector2? _debugRayEnd;
+    private float _debugRayTimer;
+    private const float DebugHitboxDisplayTime = 0.2f;
+    private const float DebugRayDisplayTime = 0.1f;
+
     // Convenience accessor for current location's objects
     public List<WorldObject> Objects => LocationObjects.TryGetValue(CurrentLocationName, out var objs) ? objs : new();
 
@@ -602,10 +614,82 @@ public class WorldManager
         // Update enemies
         UpdateEnemies(deltaTime);
 
+        // Update projectiles
+        UpdateProjectiles(deltaTime);
+
+        // Update debug visualization timers
+        UpdateDebugTimers(deltaTime);
+
         // Handle tool use on left click
         if (Input.IsLeftMousePressed())
         {
             TryUseTool();
+        }
+    }
+
+    /// <summary>
+    /// Update all projectiles in the current location.
+    /// </summary>
+    private void UpdateProjectiles(float deltaTime)
+    {
+        var toRemove = new List<Projectile>();
+
+        foreach (var projectile in Projectiles)
+        {
+            bool shouldRemove = projectile.Update(deltaTime, Enemies, IsTileSolidForProjectile);
+
+            if (shouldRemove || !projectile.IsActive)
+            {
+                toRemove.Add(projectile);
+            }
+        }
+
+        foreach (var projectile in toRemove)
+        {
+            Projectiles.Remove(projectile);
+        }
+    }
+
+    /// <summary>
+    /// Check if a world position is solid (for projectile collision).
+    /// </summary>
+    private bool IsTileSolidForProjectile(Vector2 worldPos)
+    {
+        int tileX = (int)(worldPos.X / TileSize);
+        int tileY = (int)(worldPos.Y / TileSize);
+
+        // Out of bounds = solid
+        if (tileX < 0 || tileX >= CurrentLocation.Width ||
+            tileY < 0 || tileY >= CurrentLocation.Height)
+        {
+            return true;
+        }
+
+        // Non-walkable tiles are solid
+        var tile = CurrentLocation.GetTile(tileX, tileY);
+        return !tile.Walkable;
+    }
+
+    /// <summary>
+    /// Update debug visualization timers.
+    /// </summary>
+    private void UpdateDebugTimers(float deltaTime)
+    {
+        if (_debugMeleeHitboxTimer > 0)
+        {
+            _debugMeleeHitboxTimer -= deltaTime;
+            if (_debugMeleeHitboxTimer <= 0)
+                _debugMeleeHitbox = null;
+        }
+
+        if (_debugRayTimer > 0)
+        {
+            _debugRayTimer -= deltaTime;
+            if (_debugRayTimer <= 0)
+            {
+                _debugRayStart = null;
+                _debugRayEnd = null;
+            }
         }
     }
 
@@ -791,80 +875,194 @@ public class WorldManager
 
     private void TryUseTool()
     {
-        // Get active item
-        var activeItem = Player.Inventory.GetActiveItem();
-        if (activeItem is not Tool tool)
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 0: Range and bounds validation (applies to all interactions)
+        // ═══════════════════════════════════════════════════════════════════
+        if (!_targetInRange)
         {
-            Debug.WriteLine("[Tool] No tool selected");
+            Debug.WriteLine("[Interact] Target out of range");
+            return;
+        }
+
+        if (_targetTile.X < 0 || _targetTile.X >= CurrentLocation.Width ||
+            _targetTile.Y < 0 || _targetTile.Y >= CurrentLocation.Height)
+        {
+            Debug.WriteLine("[Interact] Target out of bounds");
             return;
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // WEAPON ATTACK - Uses player hitbox instead of tile targeting
+        // STEP 1: CHECK FOR INTERACTIVE OBJECTS (Priority over tool use!)
+        // Objects like ShippingBin, Sign, Bed should work regardless of held item.
+        // No stamina cost - just interact and return.
         // ═══════════════════════════════════════════════════════════════════
+        var targetObject = GetObjectAtTile(_targetTile);
+        if (targetObject != null && TryInteractWithObject(targetObject))
+        {
+            return; // Interaction handled, no tool use needed
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 2: CHECK FOR HARVESTABLE CROPS (Free action, any item or empty hand)
+        // Mature crops can be harvested without tools and without stamina cost.
+        // ═══════════════════════════════════════════════════════════════════
+        if (targetObject is Crop crop && crop.ReadyToHarvest)
+        {
+            TryHarvestCrop(crop, targetObject);
+            return; // Harvest handled
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 3: TOOL/WEAPON USE (Requires holding a tool, costs stamina)
+        // ═══════════════════════════════════════════════════════════════════
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is not Tool tool)
+        {
+            Debug.WriteLine("[Interact] No tool selected");
+            return;
+        }
+
+        // Weapon attack uses hitbox, not tile targeting
         if (tool.IsWeapon)
         {
             PerformWeaponAttack(tool);
             return;
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // TOOL USE - Standard tile-based interaction
-        // ═══════════════════════════════════════════════════════════════════
-
-        // Range check
-        if (!_targetInRange)
-        {
-            Debug.WriteLine("[Tool] Target out of range");
-            return;
-        }
-
-        // Validate tile is in bounds
-        if (_targetTile.X < 0 || _targetTile.X >= CurrentLocation.Width ||
-            _targetTile.Y < 0 || _targetTile.Y >= CurrentLocation.Height)
-        {
-            Debug.WriteLine("[Tool] Target out of bounds");
-            return;
-        }
-
-        // Use the tool
+        // Standard tool use
         InteractWithTile(_targetTile, tool);
     }
 
     /// <summary>
-    /// Perform a melee weapon attack.
-    /// Uses hitbox in front of player based on facing direction.
+    /// Try to interact with an object that has "free" interaction (no stamina cost).
+    /// Returns true if the object was an interactive type (ShippingBin, Sign, Bed).
+    /// </summary>
+    private bool TryInteractWithObject(WorldObject obj)
+    {
+        switch (obj)
+        {
+            case ShippingBin bin:
+                // Open the shipping menu UI (Game1 handles this via event)
+                OnOpenShippingMenu?.Invoke(bin);
+                Debug.WriteLine("[Interact] Opening shipping menu");
+                return true;
+
+            case Sign sign:
+                // Open dialogue box with sign text (Game1 handles this via event)
+                OnOpenDialogue?.Invoke(sign.Text);
+                Debug.WriteLine($"[Interact] Reading sign: \"{sign.Text}\"");
+                return true;
+
+            case Bed bed:
+                // Trigger sleep transition
+                if (bed.TrySleep())
+                {
+                    Debug.WriteLine("[Interact] Player sleeping...");
+                    Transition.StartSleepTransition();
+                }
+                else
+                {
+                    Debug.WriteLine("[Interact] Cannot use this bed");
+                }
+                return true;
+
+            default:
+                // Not an interactive object - requires tool use
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Perform a weapon attack based on the weapon's AttackStyle.
+    ///
+    /// ATTACK STYLES:
+    /// - MELEE: Creates hitbox in front of player, checks intersection with enemies.
+    /// - PROJECTILE: Spawns a moving projectile in facing direction.
+    /// - RAYCAST: Instant hit along a line, finds first enemy.
     /// </summary>
     private void PerformWeaponAttack(Tool weapon)
     {
-        // PAY-TO-SWING: Check and deduct stamina
-        if (weapon.StaminaCost > 0f && Player.CurrentStamina < weapon.StaminaCost)
+        // ═══════════════════════════════════════════════════════════════════
+        // PRE-CHECKS: Cooldown and Stamina
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Check attack cooldown
+        if (!Player.CanAttack)
         {
-            Debug.WriteLine($"[{weapon.Name}] Too tired to swing!");
+            Debug.WriteLine($"[{weapon.Name}] On cooldown!");
             return;
         }
+
+        // Check stamina
+        if (weapon.StaminaCost > 0f && Player.CurrentStamina < weapon.StaminaCost)
+        {
+            Debug.WriteLine($"[{weapon.Name}] Too tired to attack!");
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // COMMITMENT: Deduct stamina and start cooldown
+        // ═══════════════════════════════════════════════════════════════════
 
         if (weapon.StaminaCost > 0f)
         {
             Player.CurrentStamina -= weapon.StaminaCost;
-            Debug.WriteLine($"[Stamina] Spent {weapon.StaminaCost} on attack ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
+            Debug.WriteLine($"[Stamina] Spent {weapon.StaminaCost} ({Player.CurrentStamina:F1}/{Player.MaxStamina} remaining)");
         }
 
-        // Get attack hitbox
-        Rectangle attackHitbox = Player.GetAttackHitbox();
+        Player.StartAttackCooldown(weapon.Cooldown);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ATTACK STYLE SWITCH
+        // ═══════════════════════════════════════════════════════════════════
+
+        switch (weapon.Style)
+        {
+            case AttackStyle.Melee:
+                PerformMeleeAttack(weapon);
+                break;
+
+            case AttackStyle.Projectile:
+                PerformProjectileAttack(weapon);
+                break;
+
+            case AttackStyle.Raycast:
+                PerformRaycastAttack(weapon);
+                break;
+
+            default:
+                // Fallback to melee for unspecified weapons
+                Debug.WriteLine($"[{weapon.Name}] Unknown attack style, defaulting to melee");
+                PerformMeleeAttack(weapon);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Perform a melee attack with hitbox collision.
+    /// </summary>
+    private void PerformMeleeAttack(Tool weapon)
+    {
+        // Get attack hitbox based on weapon settings
+        Rectangle attackHitbox = Player.GetAttackHitbox(weapon.HitboxWidth, weapon.HitboxHeight);
         bool hitSomething = false;
+
+        // Store for debug visualization
+        _debugMeleeHitbox = attackHitbox;
+        _debugMeleeHitboxTimer = DebugHitboxDisplayTime;
 
         // Check enemies in current location
         if (LocationEnemies.TryGetValue(CurrentLocationName, out var enemies))
         {
             foreach (var enemy in enemies)
             {
+                if (enemy.IsDead) continue;
+
                 if (attackHitbox.Intersects(enemy.BoundingBox))
                 {
-                    // Hit! Deal damage
-                    enemy.TakeDamage(weapon.AttackDamage, Player.Center);
+                    enemy.TakeDamage(weapon.Damage, Player.Center);
                     hitSomething = true;
-                    Debug.WriteLine($"[Combat] {weapon.Name} hit {enemy.Name} for {weapon.AttackDamage} damage!");
+                    Debug.WriteLine($"[Melee] {weapon.Name} hit {enemy.Name} for {weapon.Damage} damage!");
                 }
             }
         }
@@ -873,13 +1071,131 @@ public class WorldManager
         if (hitSomething)
         {
             Debug.WriteLine($"[Audio] {weapon.Name}: *SLASH*");
-            // TODO: Play hit sound
         }
         else
         {
             Debug.WriteLine($"[Audio] {weapon.Name}: *woosh* (miss)");
-            // TODO: Play swing sound
         }
+    }
+
+    /// <summary>
+    /// Perform a projectile attack by spawning a projectile.
+    /// </summary>
+    private void PerformProjectileAttack(Tool weapon)
+    {
+        // Get spawn point and direction
+        Vector2 spawnPoint = Player.GetProjectileSpawnPoint();
+        Vector2 direction = Player.GetFacingVector();
+
+        // Create projectile with weapon properties
+        var projectile = new Projectile
+        {
+            Position = spawnPoint,
+            Velocity = direction * weapon.ProjectileSpeed,
+            Damage = weapon.Damage,
+            Size = 12,
+            Color = new Color(weapon.ProjectileColorPacked), // Unpack ARGB color
+            MaxLifetime = 5f,
+            OwnerId = "player"
+        };
+
+        Projectiles.Add(projectile);
+
+        Debug.WriteLine($"[Projectile] {weapon.Name} fired! Direction: {direction}, Speed: {weapon.ProjectileSpeed}");
+    }
+
+    /// <summary>
+    /// Perform a raycast attack (instant line hit).
+    /// Finds the first enemy along a ray from player in facing direction.
+    /// </summary>
+    private void PerformRaycastAttack(Tool weapon)
+    {
+        Vector2 rayStart = Player.Center;
+        Vector2 rayDirection = Player.GetFacingVector();
+        Vector2 rayEnd = rayStart + rayDirection * weapon.Range;
+
+        // Store for debug visualization
+        _debugRayStart = rayStart;
+        _debugRayEnd = rayEnd;
+        _debugRayTimer = DebugRayDisplayTime;
+
+        Enemy? hitEnemy = null;
+        float closestDistance = float.MaxValue;
+
+        // Find the closest enemy along the ray
+        if (LocationEnemies.TryGetValue(CurrentLocationName, out var enemies))
+        {
+            foreach (var enemy in enemies)
+            {
+                if (enemy.IsDead) continue;
+
+                // Simple ray-rectangle intersection using parametric line-AABB
+                if (RayIntersectsRectangle(rayStart, rayDirection, weapon.Range, enemy.BoundingBox, out float distance))
+                {
+                    if (distance < closestDistance)
+                    {
+                        closestDistance = distance;
+                        hitEnemy = enemy;
+                    }
+                }
+            }
+        }
+
+        // Deal damage to hit enemy
+        if (hitEnemy != null)
+        {
+            // Update ray end to hit point for visualization
+            _debugRayEnd = rayStart + rayDirection * closestDistance;
+
+            hitEnemy.TakeDamage(weapon.Damage, rayStart);
+            Debug.WriteLine($"[Raycast] {weapon.Name} zapped {hitEnemy.Name} for {weapon.Damage} damage at distance {closestDistance:F0}!");
+            Debug.WriteLine($"[Audio] {weapon.Name}: *CRACK* (lightning)");
+        }
+        else
+        {
+            Debug.WriteLine($"[Raycast] {weapon.Name} fired but hit nothing");
+            Debug.WriteLine($"[Audio] {weapon.Name}: *ZAP* (miss)");
+        }
+    }
+
+    /// <summary>
+    /// Check if a ray intersects a rectangle (simple AABB test).
+    /// </summary>
+    private static bool RayIntersectsRectangle(Vector2 rayOrigin, Vector2 rayDir, float maxDistance, Rectangle rect, out float distance)
+    {
+        distance = 0;
+
+        // Expand ray direction to avoid division by zero
+        float dirX = rayDir.X == 0 ? 0.0001f : rayDir.X;
+        float dirY = rayDir.Y == 0 ? 0.0001f : rayDir.Y;
+
+        // Calculate intersection times for each axis
+        float txMin = (rect.Left - rayOrigin.X) / dirX;
+        float txMax = (rect.Right - rayOrigin.X) / dirX;
+        float tyMin = (rect.Top - rayOrigin.Y) / dirY;
+        float tyMax = (rect.Bottom - rayOrigin.Y) / dirY;
+
+        // Ensure min < max for each axis
+        if (txMin > txMax) (txMin, txMax) = (txMax, txMin);
+        if (tyMin > tyMax) (tyMin, tyMax) = (tyMax, tyMin);
+
+        // Check for overlap
+        float tMin = MathF.Max(txMin, tyMin);
+        float tMax = MathF.Min(txMax, tyMax);
+
+        // No intersection if ranges don't overlap
+        if (tMin > tMax)
+            return false;
+
+        // Check if intersection is within ray range and in front
+        if (tMin < 0)
+            tMin = tMax; // Ray starts inside, use exit point
+
+        if (tMin < 0 || tMin > maxDistance)
+            return false;
+
+        distance = tMin;
+        return true;
     }
 
     /// <summary>
@@ -1066,7 +1382,18 @@ public class WorldManager
                     {
                         Debug.WriteLine($"[Axe] Chopped tree to stump at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
                     }
-                    // TODO: Drop wood material
+
+                    // AUTO-LOOT: Add Wood to inventory (every chop drops wood)
+                    var wood = new Material("wood", "Wood", "A piece of wood.", 1);
+                    if (Player.Inventory.AddItem(wood))
+                    {
+                        Debug.WriteLine($"[Loot] +1 Wood added to inventory");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[Loot] Inventory full! Wood lost.");
+                        // TODO: Spawn dropped item on ground
+                    }
                     return true;
                 }
                 Debug.WriteLine($"[{tool.Name}] Can't interact with tree");
@@ -1088,28 +1415,8 @@ public class WorldManager
                 // Other tools pass through crops
                 return false;
 
-            case Bed bed:
-                // Any tool click on bed triggers sleep transition
-                if (bed.TrySleep())
-                {
-                    Debug.WriteLine("[Bed] Player sleeping... Starting sleep transition");
-                    Transition.StartSleepTransition();
-                    return true;
-                }
-                Debug.WriteLine("[Bed] Cannot use this bed");
-                return true;
-
-            case ShippingBin bin:
-                // Open the shipping menu UI (Game1 handles this via event)
-                OnOpenShippingMenu?.Invoke(bin);
-                Debug.WriteLine("[WorldManager] Opening shipping menu for bin");
-                return true; // Always consume the interaction
-
-            case Sign sign:
-                // Open dialogue box with sign text (Game1 handles this via event)
-                OnOpenDialogue?.Invoke(sign.Text);
-                Debug.WriteLine($"[WorldManager] Reading sign: \"{sign.Text}\"");
-                return true; // Always consume the interaction
+            // NOTE: Bed, ShippingBin, and Sign are handled by TryInteractWithObject()
+            // which runs BEFORE tool stamina is deducted. They no longer need handling here.
         }
 
         // Fall back to name-based interaction for base WorldObjects
@@ -1121,7 +1428,18 @@ public class WorldManager
                 {
                     Objects.Remove(obj);
                     Debug.WriteLine($"[Pickaxe] Destroyed rock at ({obj.Position.X / 64}, {obj.Position.Y / 64})");
-                    // TODO: Drop stone material
+
+                    // AUTO-LOOT: Add Stone to inventory
+                    var stone = new Material("stone", "Stone", "A chunk of stone.", 1);
+                    if (Player.Inventory.AddItem(stone))
+                    {
+                        Debug.WriteLine($"[Loot] +1 Stone added to inventory");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[Loot] Inventory full! Stone lost.");
+                        // TODO: Spawn dropped item on ground
+                    }
                     return true;
                 }
                 Debug.WriteLine($"[{tool.Name}] Can't interact with rock");
@@ -1345,8 +1663,8 @@ public class WorldManager
     /// </summary>
     private void DrawSorted(SpriteBatch spriteBatch)
     {
-        // Build list of all renderables (Objects + Enemies + Player)
-        var renderables = new List<IRenderable>(Objects.Count + Enemies.Count + 1);
+        // Build list of all renderables (Objects + Enemies + Projectiles + Player)
+        var renderables = new List<IRenderable>(Objects.Count + Enemies.Count + Projectiles.Count + 1);
 
         // Add player
         renderables.Add(Player);
@@ -1363,6 +1681,12 @@ public class WorldManager
             renderables.Add(enemy);
         }
 
+        // Add all projectiles
+        foreach (var projectile in Projectiles)
+        {
+            renderables.Add(projectile);
+        }
+
         // Sort by Y position (ascending = back to front)
         renderables.Sort((a, b) => a.SortY.CompareTo(b.SortY));
 
@@ -1377,6 +1701,9 @@ public class WorldManager
         {
             DrawDebugCollisions(spriteBatch);
         }
+
+        // Draw attack debug visualization (always on for now, shows active attacks)
+        DrawAttackDebug(spriteBatch);
     }
 
     /// <summary>
@@ -1429,6 +1756,57 @@ public class WorldManager
         spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
         // Right
         spriteBatch.Draw(_pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
+    }
+
+    /// <summary>
+    /// Draw debug visualization for active attacks (melee hitbox, raycast line).
+    /// Shows for a brief duration after attack.
+    /// </summary>
+    private void DrawAttackDebug(SpriteBatch spriteBatch)
+    {
+        // Draw melee hitbox (red filled rectangle)
+        if (_debugMeleeHitbox.HasValue)
+        {
+            // Semi-transparent red fill
+            spriteBatch.Draw(_pixel, _debugMeleeHitbox.Value, new Color(255, 0, 0, 100));
+            // Solid red border
+            DrawRectBorder(spriteBatch, _debugMeleeHitbox.Value, Color.Red);
+        }
+
+        // Draw raycast line (lightning bolt effect)
+        if (_debugRayStart.HasValue && _debugRayEnd.HasValue)
+        {
+            DrawLine(spriteBatch, _debugRayStart.Value, _debugRayEnd.Value, Color.Cyan, 3);
+            // Draw impact point
+            var impactRect = new Rectangle(
+                (int)_debugRayEnd.Value.X - 6,
+                (int)_debugRayEnd.Value.Y - 6,
+                12,
+                12
+            );
+            spriteBatch.Draw(_pixel, impactRect, Color.White);
+        }
+    }
+
+    /// <summary>
+    /// Draw a line between two points.
+    /// </summary>
+    private void DrawLine(SpriteBatch spriteBatch, Vector2 start, Vector2 end, Color color, int thickness = 1)
+    {
+        Vector2 edge = end - start;
+        float angle = MathF.Atan2(edge.Y, edge.X);
+        float length = edge.Length();
+
+        spriteBatch.Draw(
+            _pixel,
+            new Rectangle((int)start.X, (int)start.Y, (int)length, thickness),
+            null,
+            color,
+            angle,
+            Vector2.Zero,
+            SpriteEffects.None,
+            0
+        );
     }
 
     /// <summary>

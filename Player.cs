@@ -123,75 +123,134 @@ public class Player : IRenderable
     }
 
     /// <summary>
-    /// Update invincibility timer (call each frame).
+    /// Update all combat-related timers (invincibility, attack cooldown).
+    /// Call each frame.
     /// </summary>
     public void UpdateCombatTimers(float deltaTime)
     {
+        // Invincibility frames
         if (_invincibilityTimer > 0)
         {
             _invincibilityTimer -= deltaTime;
             IsHit = _invincibilityTimer > InvincibilityDuration - 0.15f; // Flash for first 0.15s
         }
+
+        // Attack cooldown
+        UpdateAttackCooldown(deltaTime);
     }
 
     #endregion
 
     #region Combat
 
-    /// <summary>Attack hitbox size (in pixels).</summary>
-    private const int AttackHitboxWidth = 48;
-    private const int AttackHitboxDepth = 32;
+    /// <summary>Default attack hitbox size (in pixels) - used if weapon doesn't specify.</summary>
+    private const int DefaultAttackHitboxWidth = 48;
+    private const int DefaultAttackHitboxDepth = 32;
+
+    /// <summary>Current attack cooldown remaining (seconds).</summary>
+    private float _attackCooldown;
+
+    /// <summary>Whether player can attack (cooldown expired).</summary>
+    public bool CanAttack => _attackCooldown <= 0;
+
+    /// <summary>
+    /// Start attack cooldown after using a weapon.
+    /// </summary>
+    public void StartAttackCooldown(float duration)
+    {
+        _attackCooldown = duration;
+    }
+
+    /// <summary>
+    /// Update attack cooldown timer.
+    /// </summary>
+    private void UpdateAttackCooldown(float deltaTime)
+    {
+        if (_attackCooldown > 0)
+            _attackCooldown -= deltaTime;
+    }
+
+    /// <summary>
+    /// Get the facing direction as a unit vector.
+    /// Used for projectile/raycast direction.
+    /// </summary>
+    public Vector2 GetFacingVector()
+    {
+        return Facing switch
+        {
+            Direction.Up => new Vector2(0, -1),
+            Direction.Down => new Vector2(0, 1),
+            Direction.Left => new Vector2(-1, 0),
+            Direction.Right => new Vector2(1, 0),
+            _ => new Vector2(0, 1) // Default down
+        };
+    }
+
+    /// <summary>
+    /// Get the spawn point for projectiles (in front of player).
+    /// </summary>
+    public Vector2 GetProjectileSpawnPoint(float offset = 32f)
+    {
+        Vector2 facingDir = GetFacingVector();
+        return Center + facingDir * offset;
+    }
 
     /// <summary>
     /// Get the attack hitbox rectangle in front of the player.
     /// Used for melee weapon collision detection.
     /// </summary>
+    /// <param name="hitboxWidth">Width of hitbox (default 48).</param>
+    /// <param name="hitboxDepth">Depth/reach of hitbox (default 32).</param>
     /// <returns>Rectangle representing the attack area.</returns>
-    public Rectangle GetAttackHitbox()
+    public Rectangle GetAttackHitbox(int hitboxWidth = 0, int hitboxDepth = 0)
     {
+        // Use defaults if not specified
+        if (hitboxWidth <= 0) hitboxWidth = DefaultAttackHitboxWidth;
+        if (hitboxDepth <= 0) hitboxDepth = DefaultAttackHitboxDepth;
+
         // Hitbox positioned in front of player based on facing direction
         int offsetX = 0, offsetY = 0;
 
         switch (Facing)
         {
             case Direction.Up:
-                offsetX = -AttackHitboxWidth / 2;
-                offsetY = -Height - AttackHitboxDepth;
+                offsetX = -hitboxWidth / 2;
+                offsetY = -Height - hitboxDepth;
                 return new Rectangle(
                     (int)Position.X + offsetX,
                     (int)Position.Y + offsetY,
-                    AttackHitboxWidth,
-                    AttackHitboxDepth
+                    hitboxWidth,
+                    hitboxDepth
                 );
 
             case Direction.Down:
-                offsetX = -AttackHitboxWidth / 2;
+                offsetX = -hitboxWidth / 2;
                 offsetY = 0;
                 return new Rectangle(
                     (int)Position.X + offsetX,
                     (int)Position.Y + offsetY,
-                    AttackHitboxWidth,
-                    AttackHitboxDepth
+                    hitboxWidth,
+                    hitboxDepth
                 );
 
             case Direction.Left:
-                offsetX = -Width / 2 - AttackHitboxDepth;
-                offsetY = -Height / 2 - AttackHitboxWidth / 2;
+                offsetX = -Width / 2 - hitboxDepth;
+                offsetY = -Height / 2 - hitboxWidth / 2;
                 return new Rectangle(
                     (int)Position.X + offsetX,
                     (int)Position.Y + offsetY,
-                    AttackHitboxDepth,
-                    AttackHitboxWidth
+                    hitboxDepth,
+                    hitboxWidth
                 );
 
             case Direction.Right:
                 offsetX = Width / 2;
-                offsetY = -Height / 2 - AttackHitboxWidth / 2;
+                offsetY = -Height / 2 - hitboxWidth / 2;
                 return new Rectangle(
                     (int)Position.X + offsetX,
                     (int)Position.Y + offsetY,
-                    AttackHitboxDepth,
-                    AttackHitboxWidth
+                    hitboxDepth,
+                    hitboxWidth
                 );
 
             default:
