@@ -196,6 +196,49 @@ public class Player : IRenderable
     }
 
     /// <summary>
+    /// Get a target position clamped to maximum range.
+    /// Allows aiming at any distance up to maxRange - if target is beyond,
+    /// returns point at maxRange in that direction.
+    ///
+    /// SMART AIMING: Click anywhere and the attack goes toward that point,
+    /// but won't exceed weapon range. No more "must click inside circle" frustration.
+    /// </summary>
+    /// <param name="targetPos">World position the player clicked/aimed at.</param>
+    /// <param name="maxRange">Maximum weapon range in pixels.</param>
+    /// <returns>Clamped target position within range.</returns>
+    public Vector2 GetClampedTarget(Vector2 targetPos, float maxRange)
+    {
+        Vector2 toTarget = targetPos - Center;
+        float distance = toTarget.Length();
+
+        if (distance <= maxRange || distance < 0.001f)
+        {
+            // Target is within range - use exact position
+            return targetPos;
+        }
+
+        // Target is beyond range - clamp to max range in that direction
+        Vector2 direction = toTarget / distance; // Normalize
+        return Center + direction * maxRange;
+    }
+
+    /// <summary>
+    /// Get the direction vector from player center to a target position.
+    /// </summary>
+    /// <param name="targetPos">World position to aim at.</param>
+    /// <returns>Normalized direction vector.</returns>
+    public Vector2 GetDirectionTo(Vector2 targetPos)
+    {
+        Vector2 toTarget = targetPos - Center;
+        float distance = toTarget.Length();
+
+        if (distance < 0.001f)
+            return GetFacingVector(); // Fallback to facing direction if clicking on self
+
+        return toTarget / distance;
+    }
+
+    /// <summary>
     /// Get the attack hitbox rectangle in front of the player.
     /// Used for melee weapon collision detection.
     /// </summary>

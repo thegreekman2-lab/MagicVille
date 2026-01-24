@@ -135,7 +135,31 @@ MagicVille/
 
 ## Version History
 
-### v2.13 - Combat Engine (Current)
+### v2.13.1 - Combat Polish (Current)
+
+**Smart Aiming System**
+- Click anywhere to attack in that direction (no more "must click inside range" frustration)
+- `Player.GetClampedTarget()` clamps target to weapon range
+- `Player.GetDirectionTo()` calculates aim direction from player to target
+- Projectiles and raycasts now aim toward mouse cursor
+
+**Solid Projectile Collisions**
+- Stepped collision check (every 8px) prevents fast projectiles phasing through walls
+- Both wall AND enemy collision checked at each step
+- Clean "fizzle" feedback when hitting walls
+
+**Raycast Wall Check**
+- Lightning/beam attacks now stop at walls (walked in 10px steps)
+- Only enemies within effective range (up to wall) can be hit
+- Debug visualization shows exact beam termination point
+
+**Daily Enemy Respawns**
+- 5 new enemies spawn each morning in Danger Zone (Y 61-95)
+- Weighted random: 50% Goblin, 30% Slime, 20% Skeleton
+- Safety checks: walkable tile, not occupied by enemy/object
+- Enemy cap of 15 prevents lag
+
+### v2.13 - Combat Engine
 
 **Attack Style System** (`Tool.cs`)
 Three weapon attack modes for variety in combat:
@@ -143,23 +167,8 @@ Three weapon attack modes for variety in combat:
 | Style | Example | Behavior |
 |-------|---------|----------|
 | **Melee** | Iron Sword | Creates hitbox in facing direction, instant hit |
-| **Projectile** | Fire Wand | Spawns moving fireball, hits first enemy |
-| **Raycast** | Lightning Staff | Instant line hit to first enemy in range |
-
-**Weapon Properties**
-```
-AttackStyle Style      - How damage is dealt (Melee/Projectile/Raycast)
-int Damage             - Base damage per hit
-float Range            - Melee reach or raycast distance
-float ProjectileSpeed  - Velocity for projectile weapons
-float Cooldown         - Seconds between attacks
-```
-
-**Projectile System** (`Projectile.cs`)
-- Moving projectiles with trail visual effect
-- Wall collision → destroy projectile
-- Enemy collision → deal damage + destroy
-- Lifetime limit (5 seconds max)
+| **Projectile** | Fire Wand | Spawns fireball toward mouse, wall collision |
+| **Raycast** | Lightning Staff | Instant line toward mouse, stops at walls |
 
 **Test Weapons (Slots 5-7)**
 | Slot | Weapon | Style | Damage | Special |
@@ -178,18 +187,10 @@ float Cooldown         - Seconds between attacks
 - **The Divider** (Y=50): Water barrier with bridge gap (X 23-26)
 - **South Zone** (Y 51-99): Danger Zone with enemies
 
-**Enemy Spawns (Danger Zone)**
-| Enemy | Position | HP | Speed |
-|-------|----------|----|----|
-| Goblin | (25, 75) | 3 | 60 |
-| Slime x2 | (15, 65), (35, 70) | 2 | 40 |
-| Goblin | (20, 85) | 3 | 60 |
-| Skeleton | (40, 80) | 5 | 45 |
-
 **Debug Visualization**
 - F3: Toggle collision boxes (Red=player, Orange=enemies)
 - Melee attacks show red hitbox (0.2s)
-- Raycast attacks show cyan line (0.1s)
+- Raycast attacks show cyan line to wall/enemy hit point
 
 **Loot System**
 - 50% chance to drop gold on enemy death

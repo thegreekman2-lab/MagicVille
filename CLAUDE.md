@@ -57,8 +57,8 @@ The Farm uses a deterministic 50x100 layout with safe and danger zones:
 
 ### Combat System (v2.13+)
 - **Enemy.cs**: Base enemy class with chase AI, contact damage, knockback
-- **Projectile.cs**: Moving projectiles with wall/enemy collision (v2.13)
-- **Player combat**: HP system, i-frames, attack cooldown, directional helpers
+- **Projectile.cs**: Moving projectiles with stepped wall collision (v2.13.1)
+- **Player combat**: HP system, i-frames, attack cooldown, smart aiming helpers
 - **WorldManager**: Manages enemies, projectiles, and attack logic per-location
 
 **Attack Style System (v2.13):**
@@ -80,59 +80,63 @@ public class Tool : Item
 | Style | Weapon Example | Behavior |
 |-------|---------------|----------|
 | Melee | Iron Sword | Creates hitbox in facing direction, instant hit |
-| Projectile | Fire Wand | Spawns moving projectile, hits first enemy |
-| Raycast | Lightning Staff | Instant line hit to first enemy in range |
+| Projectile | Fire Wand | Spawns moving projectile toward mouse, wall collision |
+| Raycast | Lightning Staff | Instant line hit toward mouse, stops at walls |
 
-**Weapon Factory Methods:**
+**Smart Aiming System (v2.13.1):**
 ```csharp
-// Slot 5: Melee weapon
-Tool.CreateMeleeWeapon("sword", "Iron Sword", ..., damage: 2);
+// Player.cs - Click anywhere, attack goes toward that point (clamped to range)
+public Vector2 GetClampedTarget(Vector2 targetPos, float maxRange)
+{
+    Vector2 toTarget = targetPos - Center;
+    if (toTarget.Length() <= maxRange)
+        return targetPos;  // Within range - use exact position
+    return Center + (toTarget / toTarget.Length()) * maxRange;  // Clamp to max range
+}
 
-// Slot 6: Projectile weapon
-Tool.CreateProjectileWeapon("fire_wand", "Fire Wand", ..., damage: 3);
-
-// Slot 7: Raycast weapon
-Tool.CreateRaycastWeapon("lightning_staff", "Lightning Staff", ..., damage: 4);
+// Usage in WorldManager:
+Vector2 mouseWorld = Input.GetMouseWorldPosition(Camera);
+Vector2 clampedTarget = Player.GetClampedTarget(mouseWorld, weapon.Range);
+Vector2 direction = Player.GetDirectionTo(clampedTarget);
 ```
 
-**Projectile System:**
+**Projectile Wall Collision (v2.13.1):**
 ```csharp
-public class Projectile : IRenderable
+// Stepped collision prevents fast projectiles from phasing through thin walls
+const float StepSize = 8f;
+int steps = (int)MathF.Ceiling(moveDistance / StepSize);
+for (int i = 0; i < steps; i++)
 {
-    public Vector2 Position, Velocity;
-    public int Damage;
-    public bool IsActive;
-
-    public bool Update(deltaTime, enemies, isTileSolid)
-    {
-        Position += Velocity * deltaTime;
-        if (isTileSolid(Position)) return destroy;
-        foreach (enemy) if (hit) { enemy.TakeDamage(); return destroy; }
-    }
+    Position += stepVector;
+    if (isTileSolid(Position)) { IsActive = false; return true; }
+    // Also check enemy collision at each step
 }
 ```
 
-**Attack Flow (WorldManager.PerformWeaponAttack):**
+**Raycast Wall Check (v2.13.1):**
 ```csharp
-switch (weapon.Style)
+// Walk the ray in steps to find first solid tile
+for (int i = 1; i <= steps; i++)
 {
-    case AttackStyle.Melee:
-        Rectangle hitbox = Player.GetAttackHitbox(weapon.HitboxWidth, weapon.HitboxHeight);
-        foreach (enemy) if (hitbox.Intersects(enemy.BoundingBox))
-            enemy.TakeDamage(weapon.Damage, Player.Center);
+    Vector2 checkPos = rayStart + rayDirection * (i * RayStepSize);
+    if (IsTileSolidForProjectile(checkPos))
+    {
+        wallHitDistance = i * RayStepSize;  // Beam stops at wall
         break;
+    }
+}
+// Then check enemies only within effective range (up to wall)
+```
 
-    case AttackStyle.Projectile:
-        var projectile = new Projectile(Player.GetProjectileSpawnPoint(),
-            Player.GetFacingVector() * weapon.ProjectileSpeed, weapon.Damage);
-        Projectiles.Add(projectile);
-        break;
-
-    case AttackStyle.Raycast:
-        // Instant line trace, hit first enemy
-        if (RayIntersectsEnemy(Player.Center, Player.GetFacingVector(), weapon.Range))
-            enemy.TakeDamage(weapon.Damage);
-        break;
+**Daily Enemy Respawns (v2.13.1):**
+```csharp
+// Called in OnDayPassed after tile processing
+private void SpawnDailyEnemies()
+{
+    // Spawn 5 enemies per day in Danger Zone (Y 61-95)
+    // Safety checks: walkable tile, not occupied by enemy/object
+    // Weighted random: 50% Goblin, 30% Slime, 20% Skeleton
+    // Cap at 15 total enemies to prevent lag
 }
 ```
 

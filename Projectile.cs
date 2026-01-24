@@ -73,6 +73,7 @@ public class Projectile : IRenderable
 
     /// <summary>
     /// Update projectile position and check for collisions.
+    /// Uses stepped collision to prevent fast projectiles from phasing through walls.
     /// </summary>
     /// <param name="deltaTime">Time since last frame.</param>
     /// <param name="enemies">List of enemies to check collision against.</param>
@@ -102,6 +103,60 @@ public class Projectile : IRenderable
                 _trailPositions.Dequeue();
         }
 
+        // Calculate movement this frame
+        Vector2 movement = Velocity * deltaTime;
+        float moveDistance = movement.Length();
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEPPED COLLISION: Check along movement path to prevent phasing
+        // through thin walls at high speeds.
+        // ═══════════════════════════════════════════════════════════════════
+        const float StepSize = 8f; // Check every 8 pixels
+        int steps = Math.Max(1, (int)MathF.Ceiling(moveDistance / StepSize));
+        Vector2 stepVector = movement / steps;
+
+        for (int i = 0; i < steps; i++)
+        {
+            Position += stepVector;
+
+            // Check wall collision at each step
+            if (isTileSolid(Position))
+            {
+                IsActive = false;
+                Debug.WriteLine($"[Projectile] Hit wall at ({Position.X:F0}, {Position.Y:F0})");
+                return true;
+            }
+
+            // Check enemy collision at each step
+            var hitbox = GetBoundingBox();
+            foreach (var enemy in enemies)
+            {
+                if (enemy.IsDead)
+                    continue;
+
+                if (hitbox.Intersects(enemy.BoundingBox))
+                {
+                    // Deal damage with knockback from projectile direction
+                    enemy.TakeDamage(Damage, Position - Velocity * 0.1f);
+                    Debug.WriteLine($"[Projectile] Hit {enemy.Name} for {Damage} damage!");
+
+                    if (!IsPiercing)
+                    {
+                        IsActive = false;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// LEGACY: Original single-point collision (kept for reference).
+    /// </summary>
+    private bool UpdateLegacy(float deltaTime, List<Enemy> enemies, Func<Vector2, bool> isTileSolid)
+    {
         // Move projectile
         Position += Velocity * deltaTime;
 
@@ -109,7 +164,6 @@ public class Projectile : IRenderable
         if (isTileSolid(Position))
         {
             IsActive = false;
-            Debug.WriteLine($"[Projectile] Hit wall at ({Position.X:F0}, {Position.Y:F0})");
             return true;
         }
 
@@ -122,9 +176,7 @@ public class Projectile : IRenderable
 
             if (hitbox.Intersects(enemy.BoundingBox))
             {
-                // Deal damage with knockback from projectile direction
                 enemy.TakeDamage(Damage, Position - Velocity * 0.1f);
-                Debug.WriteLine($"[Projectile] Hit {enemy.Name} for {Damage} damage!");
 
                 if (!IsPiercing)
                 {

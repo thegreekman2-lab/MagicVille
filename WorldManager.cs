@@ -246,7 +246,127 @@ public class WorldManager
             ResetLocationTiles(location);
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // PASS 3: THE HORDE RETURNS
+        // Spawn new enemies in the Danger Zone
+        // ═══════════════════════════════════════════════════════════════════
+        Debug.WriteLine("[WorldManager] ▶ PASS 3: Enemy Respawn Phase");
+        SpawnDailyEnemies();
+
         Debug.WriteLine($"[WorldManager] Day {newDay} processing complete");
+    }
+
+    /// <summary>
+    /// Spawn a new wave of enemies in the Danger Zone (South Zone, Y > 60).
+    /// Called each morning to ensure sustainable combat.
+    ///
+    /// RULES:
+    /// - Only spawns on Farm location
+    /// - Spawns in South Zone (Y > 60) away from bridge
+    /// - Safety checks: No spawning on solid tiles or occupied positions
+    /// - Spawns a mix of enemy types based on difficulty
+    /// </summary>
+    private void SpawnDailyEnemies()
+    {
+        // Only spawn on Farm
+        if (!LocationEnemies.TryGetValue("Farm", out var farmEnemies))
+        {
+            farmEnemies = new List<Enemy>();
+            LocationEnemies["Farm"] = farmEnemies;
+        }
+
+        // Don't spawn if too many enemies already (cap at 15)
+        if (farmEnemies.Count >= 15)
+        {
+            Debug.WriteLine("[Spawn] Enemy cap reached (15), skipping daily spawn");
+            return;
+        }
+
+        // Get Farm location for tile checks
+        if (!Locations.TryGetValue("Farm", out var farm))
+            return;
+
+        var random = new Random();
+        int spawned = 0;
+        int targetSpawns = 5; // Spawn 5 enemies per day
+        int maxAttempts = 20; // Prevent infinite loop
+        int attempts = 0;
+
+        while (spawned < targetSpawns && attempts < maxAttempts)
+        {
+            attempts++;
+
+            // Random position in Danger Zone (Y 61-95, X 5-45)
+            int tileX = random.Next(5, 46);
+            int tileY = random.Next(61, 96);
+
+            // Safety Check 1: Is tile walkable?
+            var tile = farm.GetTile(tileX, tileY);
+            if (!tile.Walkable)
+            {
+                continue; // Retry - can't spawn on water/walls
+            }
+
+            // Convert to world position (center of tile)
+            Vector2 worldPos = new Vector2(
+                tileX * TileSize + TileSize / 2f,
+                tileY * TileSize + TileSize
+            );
+
+            // Safety Check 2: Is position occupied by another enemy?
+            bool occupied = false;
+            foreach (var existing in farmEnemies)
+            {
+                if (Vector2.Distance(existing.Position, worldPos) < 64)
+                {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (occupied) continue;
+
+            // Safety Check 3: Is position occupied by a world object?
+            if (LocationObjects.TryGetValue("Farm", out var farmObjects))
+            {
+                foreach (var obj in farmObjects)
+                {
+                    if (obj.IsCollidable && obj.BoundingBox.Contains(worldPos.ToPoint()))
+                    {
+                        occupied = true;
+                        break;
+                    }
+                }
+            }
+            if (occupied) continue;
+
+            // ═══════════════════════════════════════════════════════════════════
+            // SPAWN! Pick enemy type based on weighted random
+            // ═══════════════════════════════════════════════════════════════════
+            Enemy newEnemy;
+            int roll = random.Next(100);
+
+            if (roll < 50)
+            {
+                // 50% Goblin (common)
+                newEnemy = Enemy.CreateGoblin(worldPos);
+            }
+            else if (roll < 80)
+            {
+                // 30% Slime (common, weaker)
+                newEnemy = Enemy.CreateSlime(worldPos);
+            }
+            else
+            {
+                // 20% Skeleton (rare, stronger)
+                newEnemy = Enemy.CreateSkeleton(worldPos);
+            }
+
+            farmEnemies.Add(newEnemy);
+            spawned++;
+            Debug.WriteLine($"[Spawn] {newEnemy.Name} spawned at tile ({tileX}, {tileY})");
+        }
+
+        Debug.WriteLine($"[Spawn] Daily spawn complete: {spawned} enemies added (Total: {farmEnemies.Count})");
     }
 
     /// <summary>
@@ -1080,12 +1200,17 @@ public class WorldManager
 
     /// <summary>
     /// Perform a projectile attack by spawning a projectile.
+    /// Uses SMART AIMING: Player aims at mouse position, clamped to max range.
     /// </summary>
     private void PerformProjectileAttack(Tool weapon)
     {
-        // Get spawn point and direction
+        // Get spawn point
         Vector2 spawnPoint = Player.GetProjectileSpawnPoint();
-        Vector2 direction = Player.GetFacingVector();
+
+        // SMART AIMING: Get mouse position in world, clamp to weapon range
+        Vector2 mouseWorld = Input.GetMouseWorldPosition(Camera);
+        Vector2 clampedTarget = Player.GetClampedTarget(mouseWorld, weapon.Range > 0 ? weapon.Range : 500f);
+        Vector2 direction = Player.GetDirectionTo(clampedTarget);
 
         // Create projectile with weapon properties
         var projectile = new Projectile
@@ -1101,36 +1226,70 @@ public class WorldManager
 
         Projectiles.Add(projectile);
 
-        Debug.WriteLine($"[Projectile] {weapon.Name} fired! Direction: {direction}, Speed: {weapon.ProjectileSpeed}");
+        Debug.WriteLine($"[Projectile] {weapon.Name} fired toward ({clampedTarget.X:F0}, {clampedTarget.Y:F0})");
     }
 
     /// <summary>
     /// Perform a raycast attack (instant line hit).
-    /// Finds the first enemy along a ray from player in facing direction.
+    /// Uses SMART AIMING: Player aims at mouse position, clamped to max range.
+    /// Checks WALLS FIRST - beam stops at solid tiles before checking enemies.
     /// </summary>
     private void PerformRaycastAttack(Tool weapon)
     {
         Vector2 rayStart = Player.Center;
-        Vector2 rayDirection = Player.GetFacingVector();
-        Vector2 rayEnd = rayStart + rayDirection * weapon.Range;
+
+        // SMART AIMING: Get mouse position in world, clamp to weapon range
+        Vector2 mouseWorld = Input.GetMouseWorldPosition(Camera);
+        Vector2 clampedTarget = Player.GetClampedTarget(mouseWorld, weapon.Range);
+        Vector2 rayDirection = Player.GetDirectionTo(clampedTarget);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // WALL CHECK: Walk the ray in steps to find first solid tile
+        // ═══════════════════════════════════════════════════════════════════
+        float maxDistance = weapon.Range;
+        float wallHitDistance = maxDistance;
+        bool hitWall = false;
+
+        const float RayStepSize = 10f; // Check every 10 pixels
+        int steps = (int)MathF.Ceiling(maxDistance / RayStepSize);
+
+        for (int i = 1; i <= steps; i++)
+        {
+            float checkDist = MathF.Min(i * RayStepSize, maxDistance);
+            Vector2 checkPos = rayStart + rayDirection * checkDist;
+
+            if (IsTileSolidForProjectile(checkPos))
+            {
+                wallHitDistance = checkDist;
+                hitWall = true;
+                Debug.WriteLine($"[Raycast] Wall hit at distance {wallHitDistance:F0}");
+                break;
+            }
+        }
+
+        // Ray can only reach up to the wall
+        float effectiveRange = wallHitDistance;
+        Vector2 rayEnd = rayStart + rayDirection * effectiveRange;
 
         // Store for debug visualization
         _debugRayStart = rayStart;
         _debugRayEnd = rayEnd;
         _debugRayTimer = DebugRayDisplayTime;
 
+        // ═══════════════════════════════════════════════════════════════════
+        // ENEMY CHECK: Find closest enemy within the effective range
+        // ═══════════════════════════════════════════════════════════════════
         Enemy? hitEnemy = null;
-        float closestDistance = float.MaxValue;
+        float closestDistance = effectiveRange;
 
-        // Find the closest enemy along the ray
         if (LocationEnemies.TryGetValue(CurrentLocationName, out var enemies))
         {
             foreach (var enemy in enemies)
             {
                 if (enemy.IsDead) continue;
 
-                // Simple ray-rectangle intersection using parametric line-AABB
-                if (RayIntersectsRectangle(rayStart, rayDirection, weapon.Range, enemy.BoundingBox, out float distance))
+                // Check if enemy is along the ray (within effective range)
+                if (RayIntersectsRectangle(rayStart, rayDirection, effectiveRange, enemy.BoundingBox, out float distance))
                 {
                     if (distance < closestDistance)
                     {
@@ -1141,15 +1300,22 @@ public class WorldManager
             }
         }
 
-        // Deal damage to hit enemy
+        // ═══════════════════════════════════════════════════════════════════
+        // APPLY DAMAGE OR FEEDBACK
+        // ═══════════════════════════════════════════════════════════════════
         if (hitEnemy != null)
         {
-            // Update ray end to hit point for visualization
+            // Update ray end to enemy hit point
             _debugRayEnd = rayStart + rayDirection * closestDistance;
 
             hitEnemy.TakeDamage(weapon.Damage, rayStart);
-            Debug.WriteLine($"[Raycast] {weapon.Name} zapped {hitEnemy.Name} for {weapon.Damage} damage at distance {closestDistance:F0}!");
+            Debug.WriteLine($"[Raycast] {weapon.Name} zapped {hitEnemy.Name} for {weapon.Damage} damage!");
             Debug.WriteLine($"[Audio] {weapon.Name}: *CRACK* (lightning)");
+        }
+        else if (hitWall)
+        {
+            Debug.WriteLine($"[Raycast] {weapon.Name} hit wall at distance {wallHitDistance:F0}");
+            Debug.WriteLine($"[Audio] {weapon.Name}: *FIZZLE* (wall)");
         }
         else
         {
