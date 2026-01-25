@@ -615,13 +615,27 @@ public class ShippingMenu
         DrawScaledPixelText(spriteBatch, goldText, goldX, goldY, new Color(255, 215, 0), 2);
 
         // Show pending value
+        // BUG FIX (v2.15.1): Don't use CalculateTotalValue() - it includes LastShippedItem
+        // which is the same as _binSlotItem (causes double counting while menu is open).
+        // Instead, manually sum manifest + current UI slot.
         if (_activeBin != null)
         {
-            int pendingValue = _activeBin.CalculateTotalValue();
+            // Sum committed manifest items only
+            int manifestValue = 0;
+            foreach (var item in _activeBin.ShippingManifest)
+            {
+                manifestValue += item.TotalValue;
+            }
+
+            // Add current buffer slot value (the item being edited in UI)
+            int bufferValue = 0;
             if (_binSlotItem != null)
             {
-                pendingValue += _binSlotItem.SellPrice * (_binSlotItem is Material m ? m.Quantity : 1);
+                int qty = _binSlotItem is Material m ? m.Quantity : 1;
+                bufferValue = _binSlotItem.SellPrice * qty;
             }
+
+            int pendingValue = manifestValue + bufferValue;
 
             if (pendingValue > 0)
             {
