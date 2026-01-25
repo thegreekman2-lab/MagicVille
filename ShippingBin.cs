@@ -9,17 +9,41 @@ namespace MagicVille;
 /// <summary>
 /// A shipping bin for selling items overnight.
 ///
+/// ════════════════════════════════════════════════════════════════════════════
+/// TWO-TIER STORAGE SYSTEM (v2.15):
+/// ════════════════════════════════════════════════════════════════════════════
+///
+/// 1. BUFFER SLOT (LastShippedItem):
+///    - Holds the MOST RECENT item dropped into the bin
+///    - Persists until end of day (player can re-open bin to retrieve it)
+///    - Acts as an "undo" mechanism - take it back before sleeping!
+///    - Only ONE item can be in the buffer at a time
+///
+/// 2. SHIPPING MANIFEST (ShippingManifest):
+///    - Items that are COMMITTED for sale (no retrieval possible)
+///    - When a NEW item is dropped, the PREVIOUS buffer item moves here
+///    - Processed at end of day along with buffer slot
+///
 /// ECONOMY LOOP:
-/// 1. Player interacts with bin while holding a sellable item
-/// 2. Item is removed from inventory and added to shipping manifest
-/// 3. At end of day (OnNewDay), all items in manifest are sold
-/// 4. Player receives gold, manifest is cleared
+/// 1. Player drops item into bin -> Goes to Buffer Slot
+/// 2. Player drops ANOTHER item -> Old buffer moves to Manifest, new item in buffer
+/// 3. Player can re-open bin to retrieve buffer item (undo last action)
+/// 4. At end of day: Buffer + Manifest are sold, player gets gold, both cleared
+/// ════════════════════════════════════════════════════════════════════════════
 /// </summary>
 public class ShippingBin : WorldObject
 {
     /// <summary>
-    /// Items queued for shipping at end of day.
-    /// Serialized with save data for persistence.
+    /// BUFFER SLOT: The most recently shipped item.
+    /// Player can retrieve this by re-opening the bin before sleeping.
+    /// Cleared at end of day after processing.
+    /// </summary>
+    public Item? LastShippedItem { get; set; }
+
+    /// <summary>
+    /// COMMITTED MANIFEST: Items pushed out of the buffer slot.
+    /// These cannot be retrieved - they are committed for sale.
+    /// Processed and cleared at end of day.
     /// </summary>
     public List<ShippedItem> ShippingManifest { get; set; } = new();
 
@@ -96,36 +120,60 @@ public class ShippingBin : WorldObject
 
     /// <summary>
     /// Ship an item directly (called by ShippingMenu when finalizing).
+    /// This commits the item to the manifest (no retrieval possible).
     /// </summary>
     /// <param name="item">The item to ship.</param>
     public void ShipItem(Item item)
     {
         var shippedItem = new ShippedItem(item);
         ShippingManifest.Add(shippedItem);
-        Debug.WriteLine($"[ShippingBin] ★ Shipped {shippedItem.Name} x{shippedItem.Quantity} ({shippedItem.TotalValue}g)");
+        Debug.WriteLine($"[ShippingBin] ★ Committed to manifest: {shippedItem.Name} x{shippedItem.Quantity} ({shippedItem.TotalValue}g)");
     }
 
     /// <summary>
-    /// Calculate total value of all items in shipping manifest.
+    /// Add an item directly to the committed manifest.
+    /// Called by ShippingMenu when "pushing" the old buffer item.
+    /// </summary>
+    /// <param name="item">The item to commit.</param>
+    public void AddToManifest(Item item)
+    {
+        ShipItem(item); // Same behavior, just an alias for clarity
+    }
+
+    /// <summary>
+    /// Calculate total value of all items (buffer + manifest).
     /// </summary>
     public int CalculateTotalValue()
     {
         int total = 0;
+
+        // Add manifest items
         foreach (var item in ShippingManifest)
         {
             total += item.TotalValue;
         }
+
+        // Add buffer slot item
+        if (LastShippedItem != null)
+        {
+            int qty = LastShippedItem is Material mat ? mat.Quantity : 1;
+            total += LastShippedItem.SellPrice * qty;
+        }
+
         return total;
     }
 
     /// <summary>
     /// Process nightly shipment - called during OnDayPassed.
-    /// Returns total gold earned and clears the manifest.
+    /// Returns total gold earned and clears BOTH buffer slot AND manifest.
     /// </summary>
     /// <returns>Total gold from shipped items.</returns>
     public int ProcessNightlyShipment()
     {
-        if (ShippingManifest.Count == 0)
+        bool hasBufferItem = LastShippedItem != null;
+        bool hasManifestItems = ShippingManifest.Count > 0;
+
+        if (!hasBufferItem && !hasManifestItems)
         {
             Debug.WriteLine("[ShippingBin] No items to ship tonight.");
             return 0;
@@ -135,6 +183,19 @@ public class ShippingBin : WorldObject
         Debug.WriteLine("[ShippingBin] ════════════════════════════════════");
         Debug.WriteLine("[ShippingBin] NIGHTLY SHIPMENT REPORT:");
 
+        // Process buffer slot first (the "last shipped" item)
+        if (LastShippedItem != null)
+        {
+            int qty = LastShippedItem is Material mat ? mat.Quantity : 1;
+            int value = LastShippedItem.SellPrice * qty;
+            Debug.WriteLine($"  ★ {LastShippedItem.Name} x{qty} = {value}g (buffer)");
+            totalGold += value;
+
+            // Clear buffer
+            LastShippedItem = null;
+        }
+
+        // Process committed manifest items
         foreach (var item in ShippingManifest)
         {
             Debug.WriteLine($"  • {item.Name} x{item.Quantity} = {item.TotalValue}g");

@@ -1031,14 +1031,33 @@ public class WorldManager
 
     private void UpdateTargeting()
     {
-        // Get tile under mouse cursor
-        _targetTile = Input.GetMouseTilePosition(Camera);
+        // ═══════════════════════════════════════════════════════════════════
+        // SMART TARGETING: Eliminates pixel hunting for farming tools
+        //
+        // If mouse is within range: Use precise mouse tile (player has control)
+        // If mouse is out of range: Snap to adjacent tile in mouse direction
+        //
+        // This means clicking far to the right targets the tile to your right,
+        // no matter how far away your mouse cursor is!
+        // ═══════════════════════════════════════════════════════════════════
 
-        // Calculate distance from player to target tile center
+        // Get mouse position in world coordinates
+        Vector2 mouseWorld = Input.GetMouseWorldPosition(Camera);
+
+        // Use smart targeting to get the target tile
+        _targetTile = Player.GetSmartTile(mouseWorld, InteractionRange, TileSize);
+
+        // Check if target tile is within map bounds
+        bool inBounds = _targetTile.X >= 0 && _targetTile.X < CurrentLocation.Width &&
+                        _targetTile.Y >= 0 && _targetTile.Y < CurrentLocation.Height;
+
+        // Check distance to the SMART tile (not mouse position)
         var tileCenterWorld = InputManager.GetTileCenterWorld(_targetTile);
-        float distance = Vector2.Distance(Player.Center, tileCenterWorld);
+        float distanceToTile = Vector2.Distance(Player.Center, tileCenterWorld);
 
-        _targetInRange = distance <= InteractionRange;
+        // Smart tile is always "in range" if it's adjacent (within ~1.5 tiles)
+        // This is because GetSmartTile guarantees adjacent tile when out of range
+        _targetInRange = inBounds && distanceToTile <= InteractionRange + TileSize;
     }
 
     private void TryUseTool()

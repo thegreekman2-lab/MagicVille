@@ -10,10 +10,12 @@ namespace MagicVille;
 /// <summary>
 /// Shipping menu UI for selling items (Stardew Valley style).
 ///
-/// ARCHITECTURE:
+/// ARCHITECTURE (v2.15 - Persistent Buffer):
 /// - View-Model Separation: References Player.Inventory
-/// - Bin Slot: Acts as "undo buffer" - last item can be retrieved
-/// - On close: Bin Slot item is finalized to shipping manifest
+/// - Bin Slot: Acts as "undo buffer" - persists until end of day
+/// - On Open: Loads the bin's LastShippedItem into the slot
+/// - On Close: Saves slot back to LastShippedItem (NOT shipped immediately)
+/// - Buffer is only sold at end of day in ProcessNightlyShipment
 ///
 /// LAYOUT:
 /// - Top: Large "Bin Slot" for dropping items to sell
@@ -63,47 +65,69 @@ public class ShippingMenu
 
     /// <summary>
     /// Open the shipping menu for a specific bin.
+    /// Loads the bin's LastShippedItem into the buffer slot.
     /// </summary>
     public void Open(ShippingBin bin)
     {
         _activeBin = bin;
-        _binSlotItem = null;
+
+        // Load the persistent buffer item from the bin
+        _binSlotItem = bin.LastShippedItem;
+
         _heldItem = null;
         _sourceIndex = -1;
         _isDragging = false;
-        Debug.WriteLine("[ShippingMenu] Opened for shipping bin");
+
+        if (_binSlotItem != null)
+        {
+            Debug.WriteLine($"[ShippingMenu] Opened with existing item: {_binSlotItem.Name}");
+        }
+        else
+        {
+            Debug.WriteLine("[ShippingMenu] Opened for shipping bin (empty buffer)");
+        }
     }
 
     /// <summary>
-    /// Finalize shipping and close the menu.
-    /// Moves bin slot item to the shipping manifest.
+    /// Close the menu and persist the buffer slot.
+    /// CRITICAL: Does NOT ship the buffer item - it stays in LastShippedItem
+    /// until end of day, allowing the player to retrieve it later.
     /// </summary>
     public void FinalizeAndClose(ShippingBin? bin)
     {
-        // If there's an item in the bin slot, ship it
-        if (_binSlotItem != null && bin != null)
-        {
-            bin.ShipItem(_binSlotItem);
-            Debug.WriteLine($"[ShippingMenu] Finalized bin slot item");
-            _binSlotItem = null;
-        }
-
-        // If holding an item, return it to source
+        // If holding an item, return it to appropriate location first
         if (_isDragging && _heldItem != null)
         {
             if (_sourceIndex >= 0)
             {
+                // Was from inventory - return to inventory
                 PlayerInventory.SetSlot(_sourceIndex, _heldItem);
             }
             else if (_sourceIndex == -2)
             {
-                // Was from bin slot, put back
+                // Was from bin slot - put back in buffer
                 _binSlotItem = _heldItem;
             }
             _heldItem = null;
             _isDragging = false;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL CHANGE (v2.15): PERSIST buffer, don't ship it!
+        // The item stays in LastShippedItem until OnDayPassed processes it.
+        // This allows the player to re-open the bin and retrieve the item.
+        // ═══════════════════════════════════════════════════════════════════
+        if (bin != null)
+        {
+            bin.LastShippedItem = _binSlotItem;
+
+            if (_binSlotItem != null)
+            {
+                Debug.WriteLine($"[ShippingMenu] Saved buffer item: {_binSlotItem.Name} (retrievable until sleep)");
+            }
+        }
+
+        _binSlotItem = null;
         _activeBin = null;
         Debug.WriteLine("[ShippingMenu] Closed");
     }
@@ -188,17 +212,20 @@ public class ShippingMenu
                 return;
             }
 
-            // If bin slot has an item, finalize it first (push system)
+            // ═══════════════════════════════════════════════════════════════════
+            // PUSH SYSTEM: If bin slot has an item, COMMIT it to manifest
+            // The old item becomes unretrievable, new item goes to buffer
+            // ═══════════════════════════════════════════════════════════════════
             if (_binSlotItem != null && _activeBin != null)
             {
-                _activeBin.ShipItem(_binSlotItem);
-                Debug.WriteLine("[ShippingMenu] Auto-finalized previous item");
+                _activeBin.AddToManifest(_binSlotItem);
+                Debug.WriteLine($"[ShippingMenu] Pushed to manifest: {_binSlotItem.Name} (committed)");
             }
 
-            // Place held item in bin slot
+            // Place held item in bin slot (buffer)
             _binSlotItem = _heldItem;
             int value = _heldItem.SellPrice * (_heldItem is Material m ? m.Quantity : 1);
-            Debug.WriteLine($"[ShippingMenu] Added to bin: {_heldItem.Name} ({value}g)");
+            Debug.WriteLine($"[ShippingMenu] Added to buffer: {_heldItem.Name} ({value}g) - retrievable until sleep");
 
             _heldItem = null;
             _sourceIndex = -1;

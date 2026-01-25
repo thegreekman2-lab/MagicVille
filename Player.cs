@@ -239,6 +239,66 @@ public class Player : IRenderable
     }
 
     /// <summary>
+    /// Get the smart target tile for farming tools.
+    ///
+    /// SMART TARGETING: Eliminates "pixel hunting" frustration.
+    /// - If mouse is within interaction range: Use precise mouse tile (Precision Mode)
+    /// - If mouse is out of range: Target adjacent tile in mouse direction (Direction Mode)
+    ///
+    /// This means players can click FAR to the right and the tool will target
+    /// the tile immediately to the player's right - no need for precise mouse placement.
+    /// </summary>
+    /// <param name="mouseWorldPos">Mouse position in world coordinates.</param>
+    /// <param name="interactionRange">Max range for precision mode (typically 96px / 1.5 tiles).</param>
+    /// <param name="tileSize">Size of a tile in pixels (typically 64).</param>
+    /// <returns>Grid coordinates of the smart target tile.</returns>
+    public Point GetSmartTile(Vector2 mouseWorldPos, float interactionRange, int tileSize)
+    {
+        // Calculate distance from player center to mouse
+        Vector2 toMouse = mouseWorldPos - Center;
+        float distance = toMouse.Length();
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CASE 1: PRECISION MODE - Mouse is within interaction range
+        // Use exact mouse tile for fine control
+        // ═══════════════════════════════════════════════════════════════════
+        if (distance <= interactionRange)
+        {
+            return new Point(
+                (int)(mouseWorldPos.X / tileSize),
+                (int)(mouseWorldPos.Y / tileSize)
+            );
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CASE 2: DIRECTION MODE - Mouse is out of range
+        // Snap to adjacent tile in the mouse's cardinal direction
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Get player's current tile
+        Point playerTile = new Point(
+            (int)(Center.X / tileSize),
+            (int)(Center.Y / tileSize)
+        );
+
+        // Determine dominant direction (cardinal snap)
+        // Use absolute values to determine horizontal vs vertical
+        Point offset;
+        if (MathF.Abs(toMouse.X) > MathF.Abs(toMouse.Y))
+        {
+            // Horizontal dominant - snap to Left or Right
+            offset = toMouse.X > 0 ? new Point(1, 0) : new Point(-1, 0);
+        }
+        else
+        {
+            // Vertical dominant - snap to Up or Down
+            offset = toMouse.Y > 0 ? new Point(0, 1) : new Point(0, -1);
+        }
+
+        return new Point(playerTile.X + offset.X, playerTile.Y + offset.Y);
+    }
+
+    /// <summary>
     /// Get the attack hitbox rectangle in front of the player.
     /// Used for melee weapon collision detection.
     /// </summary>

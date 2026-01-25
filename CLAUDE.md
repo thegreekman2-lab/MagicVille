@@ -428,7 +428,7 @@ private bool TryHarvestCrop(Crop crop, WorldObject obj)
 }
 ```
 
-### Economy System (v2.9)
+### Economy System (v2.9, Persistent Buffer v2.15)
 **Player Gold & Item Prices**
 ```csharp
 // Player.cs
@@ -442,35 +442,57 @@ public bool IsSellable => SellPrice > 0;
 new Material("wood", "Wood", "...", quantity: 25, sellPrice: 2);
 ```
 
-**Shipping Bin** (`ShippingBin.cs`)
-- World object spawned on Farm at tile (2, 2)
+**Shipping Bin Two-Tier Storage (v2.15)** (`ShippingBin.cs`)
+
+| Storage | Property | Behavior |
+|---------|----------|----------|
+| **Buffer Slot** | `LastShippedItem` | Most recent item - retrievable until sleep |
+| **Manifest** | `ShippingManifest` | Committed items - no retrieval possible |
+
+- World object spawned on Farm at tile (12, 12)
 - Click to open `ShippingMenu` UI (via `WorldManager.OnOpenShippingMenu` event)
-- Manifest processed overnight in `OnDayPassed`:
+- **Buffer persists across menu sessions** - re-open bin to retrieve last item
+- Manifest + Buffer processed overnight in `OnDayPassed`:
 
 ```csharp
-// WorldManager.ProcessNightlyShipments()
-foreach (var bin in allShippingBins)
+// ShippingBin.ProcessNightlyShipment()
+public int ProcessNightlyShipment()
 {
-    int earnings = bin.ProcessNightlyShipment(); // Clears manifest
-    Player.Gold += earnings;
+    int totalGold = 0;
+
+    // 1. Process buffer slot (retrievable until now)
+    if (LastShippedItem != null)
+    {
+        totalGold += LastShippedItem.SellPrice * quantity;
+        LastShippedItem = null;  // Clear buffer
+    }
+
+    // 2. Process committed manifest
+    foreach (var item in ShippingManifest)
+        totalGold += item.TotalValue;
+
+    ShippingManifest.Clear();  // Clear manifest
+    return totalGold;
 }
 ```
 
 **Shipping Menu** (`ShippingMenu.cs`) - Stardew-style UI
-- **Bin Slot**: Single large slot acts as "undo buffer"
-- **Push System**: Dropping new item → auto-finalizes previous item to manifest
-- **Undo**: Drag item from bin slot back to inventory before close
-- **On Close**: Bin slot item finalized, state returns to Playing
+- **On Open**: Loads `bin.LastShippedItem` into UI slot
+- **Push System**: Dropping new item → commits old buffer to manifest (unretrievable)
+- **Undo**: Drag item from bin slot back to inventory anytime
+- **On Close**: Saves slot back to `bin.LastShippedItem` (NOT shipped yet!)
 
 ```csharp
-// Drop into bin slot
-if (_binSlotItem != null)
-    _activeBin.ShipItem(_binSlotItem);  // Finalize old item
-_binSlotItem = _heldItem;               // New item in buffer
+// On Open - load persistent buffer
+_binSlotItem = bin.LastShippedItem;
 
-// On menu close
+// Drop into bin slot (push system)
 if (_binSlotItem != null)
-    _activeBin.ShipItem(_binSlotItem);  // Finalize last item
+    _activeBin.AddToManifest(_binSlotItem);  // COMMIT old item
+_binSlotItem = _heldItem;                     // New item in buffer
+
+// On Close - PERSIST buffer (don't ship!)
+bin.LastShippedItem = _binSlotItem;  // Retrievable until sleep
 ```
 
 ### Item Serialization
