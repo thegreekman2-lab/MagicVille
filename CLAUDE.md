@@ -219,10 +219,28 @@ else PlayWooshSound(); // Miss
 - **InputManager.cs**: Mouse/keyboard state tracking, screen-to-world coordinate conversion
 - Tool interaction uses range checking (96px) with visual reticle feedback
 
-### Save System
-- **SaveData.cs**: DTO for serializable game state
+### Save System (v2.16 - Flat DTOs)
+- **SaveData.cs**: DTOs for serializable game state
+  - `ItemData`: Flat DTO for Tool/Material serialization
+  - `WorldObjectData`: Flat DTO for all WorldObject subclasses
+  - `LocationSaveData`: Per-location tiles + objects
 - **TileSaveData.cs**: DTO for modified tile positions and IDs
-- **SaveManager.cs**: JSON save/load with polymorphic Item support
+- **SaveManager.cs**: JSON save/load
+
+**v2.16 Fix**: Polymorphic serialization was stripping subclass data.
+Now uses explicit flat DTOs with Type discriminators instead of JsonPolymorphic.
+
+```csharp
+// WorldManager.CreateSaveData() - Object to DTO
+var data = WorldObjectToData(obj);  // Saves all subclass fields
+
+// WorldManager.ApplySaveData() - DTO to Object
+var obj = DataToWorldObject(data);  // Restores correct subclass
+
+// Inventory.ToSaveData() / LoadFromData()
+var itemData = Inventory.ItemToData(item);  // Tool or Material
+var item = Inventory.DataToItem(itemData);  // Recreates with all properties
+```
 
 ### Time System (v2.3)
 - **TimeManager.cs**: Static class managing global game time

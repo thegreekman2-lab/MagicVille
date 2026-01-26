@@ -168,7 +168,8 @@ public class Inventory
 
     #region Save/Load
 
-    /// <summary>Get all items as a list for serialization.</summary>
+    /// <summary>Get all items as a list for serialization (legacy polymorphic).</summary>
+    [Obsolete("Use ToSaveData() for v2.16+ saves")]
     public List<Item?> ToSaveList()
     {
         var list = new List<Item?>(HotbarSize);
@@ -177,7 +178,8 @@ public class Inventory
         return list;
     }
 
-    /// <summary>Restore inventory from saved list.</summary>
+    /// <summary>Restore inventory from saved list (legacy polymorphic).</summary>
+    [Obsolete("Use LoadFromData() for v2.16+ saves")]
     public void LoadFromSaveList(List<Item?>? items)
     {
         // Clear all slots
@@ -188,6 +190,123 @@ public class Inventory
 
         for (int i = 0; i < Math.Min(items.Count, HotbarSize); i++)
             _slots[i] = items[i];
+    }
+
+    /// <summary>
+    /// Convert inventory to flat DTOs for serialization (v2.16+).
+    /// Avoids polymorphic serialization issues.
+    /// </summary>
+    public List<ItemData?> ToSaveData()
+    {
+        var list = new List<ItemData?>(HotbarSize);
+        for (int i = 0; i < HotbarSize; i++)
+        {
+            list.Add(ItemToData(_slots[i]));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Restore inventory from flat DTOs (v2.16+).
+    /// </summary>
+    public void LoadFromData(List<ItemData?>? items)
+    {
+        // Clear all slots
+        for (int i = 0; i < HotbarSize; i++)
+            _slots[i] = null;
+
+        if (items == null) return;
+
+        for (int i = 0; i < Math.Min(items.Count, HotbarSize); i++)
+        {
+            _slots[i] = DataToItem(items[i]);
+        }
+    }
+
+    /// <summary>
+    /// Convert an Item to ItemData DTO.
+    /// </summary>
+    public static ItemData? ItemToData(Item? item)
+    {
+        if (item == null) return null;
+
+        var data = new ItemData
+        {
+            RegistryKey = item.RegistryKey,
+            Name = item.Name,
+            Description = item.Description,
+            SellPrice = item.SellPrice
+        };
+
+        switch (item)
+        {
+            case Tool tool:
+                data.Type = "tool";
+                data.IsWeapon = tool.IsWeapon;
+                data.AttackStyle = tool.Style.ToString();
+                data.Damage = tool.Damage;
+                data.Range = tool.Range;
+                data.ProjectileSpeed = tool.ProjectileSpeed;
+                data.Cooldown = tool.Cooldown;
+                data.StaminaCost = tool.StaminaCost;
+                data.ResourceCost = tool.ResourceCost;
+                data.PowerLevel = tool.PowerLevel;
+                data.AffectsTileThroughObjects = tool.AffectsTileThroughObjects;
+                data.ProjectileColorPacked = tool.ProjectileColorPacked;
+                data.HitboxWidth = tool.HitboxWidth;
+                data.HitboxHeight = tool.HitboxHeight;
+                break;
+
+            case Material mat:
+                data.Type = "material";
+                data.Quantity = mat.Quantity;
+                data.MaxStack = mat.MaxStack;
+                break;
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Convert ItemData DTO back to an Item.
+    /// </summary>
+    public static Item? DataToItem(ItemData? data)
+    {
+        if (data == null) return null;
+
+        return data.Type switch
+        {
+            "tool" => new Tool
+            {
+                RegistryKey = data.RegistryKey,
+                Name = data.Name,
+                Description = data.Description,
+                IsWeapon = data.IsWeapon,
+                Style = Enum.TryParse<AttackStyle>(data.AttackStyle, out var style) ? style : AttackStyle.None,
+                Damage = data.Damage,
+                Range = data.Range,
+                ProjectileSpeed = data.ProjectileSpeed,
+                Cooldown = data.Cooldown,
+                StaminaCost = data.StaminaCost,
+                ResourceCost = data.ResourceCost,
+                PowerLevel = data.PowerLevel,
+                AffectsTileThroughObjects = data.AffectsTileThroughObjects,
+                ProjectileColorPacked = data.ProjectileColorPacked,
+                HitboxWidth = data.HitboxWidth,
+                HitboxHeight = data.HitboxHeight
+            },
+
+            "material" => new Material(
+                registryKey: data.RegistryKey,
+                name: data.Name,
+                description: data.Description,
+                quantity: data.Quantity,
+                maxStack: data.MaxStack,
+                sellPrice: data.SellPrice
+            ),
+
+            _ => null
+        };
     }
 
     #endregion

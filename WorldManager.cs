@@ -2424,21 +2424,30 @@ public class WorldManager
 
     /// <summary>
     /// Creates save data for ALL locations (global persistence).
+    /// v2.16: Uses flat DTOs to avoid polymorphic serialization failures.
     /// </summary>
     public SaveData CreateSaveData()
     {
-        // Save ALL locations (tiles + objects)
+        // Save ALL locations (tiles + objects as DTOs)
         var locationSaveData = new List<LocationSaveData>();
 
         foreach (var (locationName, location) in Locations)
         {
+            var objectDtos = new List<WorldObjectData>();
+
+            if (LocationObjects.TryGetValue(locationName, out var objs))
+            {
+                foreach (var obj in objs)
+                {
+                    objectDtos.Add(WorldObjectToData(obj));
+                }
+            }
+
             var locData = new LocationSaveData
             {
                 Name = locationName,
                 ModifiedTiles = GetModifiedTilesForLocation(location),
-                Objects = LocationObjects.TryGetValue(locationName, out var objs)
-                    ? new List<WorldObject>(objs)
-                    : new List<WorldObject>()
+                Objects = objectDtos
             };
             locationSaveData.Add(locData);
             Debug.WriteLine($"[Save] {locationName}: {locData.ModifiedTiles.Count} tiles, {locData.Objects.Count} objects");
@@ -2451,18 +2460,96 @@ public class WorldManager
             PlayerName = Player.Name,
             PlayerGold = Player.Gold,
             PlayerStamina = Player.CurrentStamina,
+            PlayerHP = Player.CurrentHP,
             CurrentLocationName = CurrentLocationName,
             WorldSeed = WorldSeed,
             Day = TimeManager.Day,
             TimeOfDay = TimeManager.TimeOfDay,
-            InventorySlots = Player.Inventory.ToSaveList(),
+            InventorySlots = Player.Inventory.ToSaveData(),
             ActiveHotbarSlot = Player.Inventory.ActiveSlotIndex,
             Locations = locationSaveData
         };
     }
 
     /// <summary>
+    /// Convert a WorldObject to flat DTO for serialization.
+    /// </summary>
+    private static WorldObjectData WorldObjectToData(WorldObject obj)
+    {
+        var data = new WorldObjectData
+        {
+            Name = obj.Name,
+            X = obj.Position.X,
+            Y = obj.Position.Y,
+            Width = obj.Width,
+            Height = obj.Height,
+            ColorPacked = obj.Color.PackedValue,
+            IsCollidable = obj.IsCollidable
+        };
+
+        switch (obj)
+        {
+            case Crop crop:
+                data.Type = "crop";
+                data.CropType = crop.CropType;
+                data.CropStage = (int)crop.Stage;
+                data.DaysAtStage = crop.DaysAtStage;
+                data.DaysPerStage = crop.DaysPerStage;
+                data.WasWateredToday = crop.WasWateredToday;
+                data.DaysWithoutWater = crop.DaysWithoutWater;
+                data.MaxDaysWithoutWater = crop.MaxDaysWithoutWater;
+                data.HarvestItemId = crop.HarvestItemId;
+                data.Regrows = crop.Regrows;
+                data.HarvestResetStage = (int)crop.HarvestResetStage;
+                data.HarvestQuantity = crop.HarvestQuantity;
+                break;
+
+            case Tree tree:
+                data.Type = "tree";
+                data.TreeType = tree.TreeType;
+                data.TreeStage = (int)tree.Stage;
+                data.DaysAtStage = tree.DaysAtStage;
+                data.DaysToYoung = tree.DaysToYoung;
+                data.DaysToMature = tree.DaysToMature;
+                data.DaysToRegrow = tree.DaysToRegrow;
+                break;
+
+            case ManaNode node:
+                data.Type = "mana_node";
+                data.CrystalType = node.CrystalType;
+                data.CurrentCharge = node.CurrentCharge;
+                data.MaxCharge = node.MaxCharge;
+                data.RechargePerDay = node.RechargePerDay;
+                break;
+
+            case Bed bed:
+                data.Type = "bed";
+                data.BedStyle = bed.BedStyle;
+                data.CanSleep = bed.CanSleep;
+                break;
+
+            case Sign sign:
+                data.Type = "sign";
+                data.SignText = sign.Text;
+                break;
+
+            case ShippingBin bin:
+                data.Type = "shipping_bin";
+                data.LastShippedItem = Inventory.ItemToData(bin.LastShippedItem);
+                data.ShippingManifest = new List<ShippingBin.ShippedItem>(bin.ShippingManifest);
+                break;
+
+            default:
+                data.Type = "base";
+                break;
+        }
+
+        return data;
+    }
+
+    /// <summary>
     /// Restores ALL locations from save data (global persistence).
+    /// v2.16: Uses flat DTOs to properly restore polymorphic objects.
     /// </summary>
     public void ApplySaveData(SaveData data)
     {
@@ -2497,10 +2584,19 @@ public class WorldManager
                 location.SetTile(tileSave.X, tileSave.Y, tile);
             }
 
-            // Restore objects (or spawn defaults if none saved)
+            // Restore objects from DTOs (or spawn defaults if none saved)
             if (locData.Objects.Count > 0)
             {
-                LocationObjects[locData.Name] = new List<WorldObject>(locData.Objects);
+                var objects = new List<WorldObject>();
+                foreach (var dto in locData.Objects)
+                {
+                    var obj = DataToWorldObject(dto);
+                    if (obj != null)
+                    {
+                        objects.Add(obj);
+                    }
+                }
+                LocationObjects[locData.Name] = objects;
             }
             else
             {
@@ -2529,11 +2625,108 @@ public class WorldManager
         Player.Name = data.PlayerName;
         Player.Gold = data.PlayerGold;
         Player.CurrentStamina = data.PlayerStamina;
-        Player.Inventory.LoadFromSaveList(data.InventorySlots);
+        Player.CurrentHP = data.PlayerHP > 0 ? data.PlayerHP : Player.MaxHP;
+        Player.Inventory.LoadFromData(data.InventorySlots);
         Player.Inventory.SelectSlot(data.ActiveHotbarSlot);
 
         Debug.WriteLine($"[WorldManager] Loaded location: {CurrentLocationName}");
         Debug.WriteLine($"[WorldManager] Restored player gold: {Player.Gold}g, stamina: {Player.CurrentStamina:F1}");
+    }
+
+    /// <summary>
+    /// Convert flat DTO back to a WorldObject.
+    /// </summary>
+    private static WorldObject? DataToWorldObject(WorldObjectData data)
+    {
+        var position = new Vector2(data.X, data.Y);
+
+        switch (data.Type)
+        {
+            case "crop":
+                return new Crop
+                {
+                    Name = data.Name,
+                    Position = position,
+                    Width = data.Width,
+                    Height = data.Height,
+                    Color = new Microsoft.Xna.Framework.Color(data.ColorPacked),
+                    IsCollidable = data.IsCollidable,
+                    CropType = data.CropType,
+                    Stage = (CropStage)data.CropStage,
+                    DaysAtStage = data.DaysAtStage,
+                    DaysPerStage = data.DaysPerStage,
+                    WasWateredToday = data.WasWateredToday,
+                    DaysWithoutWater = data.DaysWithoutWater,
+                    MaxDaysWithoutWater = data.MaxDaysWithoutWater,
+                    HarvestItemId = data.HarvestItemId,
+                    Regrows = data.Regrows,
+                    HarvestResetStage = (CropStage)data.HarvestResetStage,
+                    HarvestQuantity = data.HarvestQuantity
+                };
+
+            case "tree":
+                return new Tree
+                {
+                    Name = data.Name,
+                    Position = position,
+                    TreeType = data.TreeType,
+                    Stage = (TreeStage)data.TreeStage,
+                    DaysAtStage = data.DaysAtStage,
+                    DaysToYoung = data.DaysToYoung,
+                    DaysToMature = data.DaysToMature,
+                    DaysToRegrow = data.DaysToRegrow
+                };
+
+            case "mana_node":
+                return new ManaNode
+                {
+                    Name = data.Name,
+                    Position = position,
+                    CrystalType = data.CrystalType,
+                    CurrentCharge = data.CurrentCharge,
+                    MaxCharge = data.MaxCharge,
+                    RechargePerDay = data.RechargePerDay
+                };
+
+            case "bed":
+                return new Bed
+                {
+                    Name = data.Name,
+                    Position = position,
+                    BedStyle = data.BedStyle,
+                    CanSleep = data.CanSleep
+                };
+
+            case "sign":
+                return new Sign
+                {
+                    Name = data.Name,
+                    Position = position,
+                    Text = data.SignText
+                };
+
+            case "shipping_bin":
+                var bin = new ShippingBin
+                {
+                    Name = data.Name,
+                    Position = position
+                };
+                bin.LastShippedItem = Inventory.DataToItem(data.LastShippedItem);
+                bin.ShippingManifest = new List<ShippingBin.ShippedItem>(data.ShippingManifest);
+                return bin;
+
+            case "base":
+            default:
+                return new WorldObject
+                {
+                    Name = data.Name,
+                    Position = position,
+                    Width = data.Width,
+                    Height = data.Height,
+                    Color = new Microsoft.Xna.Framework.Color(data.ColorPacked),
+                    IsCollidable = data.IsCollidable
+                };
+        }
     }
 
     /// <summary>
