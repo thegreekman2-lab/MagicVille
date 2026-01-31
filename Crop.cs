@@ -309,7 +309,7 @@ public class Crop : WorldObject
     /// <summary>
     /// Update visual appearance based on stage.
     /// </summary>
-    private void UpdateVisuals()
+    public void UpdateVisuals()
     {
         (Color, Height) = Stage switch
         {

@@ -20,6 +20,8 @@ namespace MagicVille;
 /// LAYOUT:
 /// - Top: Large "Bin Slot" for dropping items to sell
 /// - Bottom: Player's inventory for dragging items from
+///
+/// v2.18: Font/tooltip/border rendering delegated to UIRenderer.
 /// </summary>
 public class ShippingMenu
 {
@@ -369,12 +371,11 @@ public class ShippingMenu
     private void DrawTitle(SpriteBatch spriteBatch, Viewport viewport)
     {
         string title = "SHIPPING BIN";
-        int charWidth = 6 * 2; // 2x scale
-        int titleWidth = title.Length * charWidth;
+        int titleWidth = UIRenderer.MeasureString(title, 2);
         int titleX = (viewport.Width - titleWidth) / 2;
         int titleY = _binSlotRect.Y - 40;
 
-        DrawScaledPixelText(spriteBatch, title, titleX, titleY, Color.White, 2);
+        UIRenderer.DrawString(spriteBatch, _pixel, title, titleX, titleY, Color.White, 2);
     }
 
     /// <summary>
@@ -401,19 +402,19 @@ public class ShippingMenu
 
         // Label
         string label = "DROP HERE";
-        int labelWidth = label.Length * 6;
+        int labelWidth = UIRenderer.MeasureString(label, 1);
         int labelX = _binSlotRect.X + (_binSlotRect.Width - labelWidth) / 2;
         int labelY = _binSlotRect.Bottom + 8;
-        DrawScaledPixelText(spriteBatch, label, labelX, labelY, new Color(180, 180, 180), 1);
+        UIRenderer.DrawString(spriteBatch, _pixel, label, labelX, labelY, new Color(180, 180, 180), 1);
 
         // Show shipping manifest count
         if (_activeBin != null && _activeBin.ShippingManifest.Count > 0)
         {
             string countText = $"{_activeBin.ShippingManifest.Count} shipped";
-            int countWidth = countText.Length * 6;
+            int countWidth = UIRenderer.MeasureString(countText, 1);
             int countX = _binSlotRect.X + (_binSlotRect.Width - countWidth) / 2;
             int countY = labelY + 14;
-            DrawScaledPixelText(spriteBatch, countText, countX, countY, new Color(150, 255, 150), 1);
+            UIRenderer.DrawString(spriteBatch, _pixel, countText, countX, countY, new Color(150, 255, 150), 1);
         }
     }
 
@@ -488,7 +489,7 @@ public class ShippingMenu
     /// </summary>
     private void DrawItemInSlot(SpriteBatch spriteBatch, Item item, Rectangle slotRect, bool showPrice = false)
     {
-        Color itemColor = GetItemColor(item);
+        Color itemColor = UIRenderer.GetItemColor(item);
 
         var itemRect = new Rectangle(
             slotRect.X + ItemInset,
@@ -503,9 +504,9 @@ public class ShippingMenu
         if (item is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
-            int qtyX = slotRect.X + slotRect.Width - qtyStr.Length * 6 - 4;
+            int qtyX = slotRect.X + slotRect.Width - UIRenderer.MeasureString(qtyStr, 1) - 4;
             int qtyY = slotRect.Y + slotRect.Height - 12;
-            DrawScaledPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White, 1);
+            UIRenderer.DrawString(spriteBatch, _pixel, qtyStr, qtyX, qtyY, Color.White, 1);
         }
 
         // Price for bin slot
@@ -513,9 +514,10 @@ public class ShippingMenu
         {
             int totalPrice = item.SellPrice * (item is Material m ? m.Quantity : 1);
             string priceStr = $"{totalPrice}g";
-            int priceX = slotRect.X + (slotRect.Width - priceStr.Length * 6) / 2;
+            int priceWidth = UIRenderer.MeasureString(priceStr, 1);
+            int priceX = slotRect.X + (slotRect.Width - priceWidth) / 2;
             int priceY = slotRect.Y - 14;
-            DrawScaledPixelText(spriteBatch, priceStr, priceX, priceY, new Color(255, 215, 0), 1);
+            UIRenderer.DrawString(spriteBatch, _pixel, priceStr, priceX, priceY, new Color(255, 215, 0), 1);
         }
     }
 
@@ -541,35 +543,7 @@ public class ShippingMenu
         if (item == null)
             return;
 
-        var mousePos = Mouse.GetState().Position;
-
-        // Build tooltip
-        string name = item.Name;
-        string priceText = item.IsSellable
-            ? $"Sells for: {item.SellPrice}g"
-            : "Cannot sell";
-
-        int nameWidth = name.Length * 12; // 2x scale
-        int priceWidth = priceText.Length * 6;
-        int tooltipWidth = Math.Max(nameWidth, priceWidth) + 20;
-        int tooltipHeight = 40;
-
-        int tooltipX = mousePos.X + 20;
-        int tooltipY = mousePos.Y;
-
-        if (tooltipX + tooltipWidth > viewport.Width - 4)
-            tooltipX = mousePos.X - tooltipWidth - 10;
-        tooltipX = Math.Max(4, tooltipX);
-        tooltipY = Math.Clamp(tooltipY, 4, viewport.Height - tooltipHeight - 4);
-
-        var tooltipRect = new Rectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
-        spriteBatch.Draw(_pixel, tooltipRect, new Color(0, 0, 0, 220));
-        DrawRectBorder(spriteBatch, tooltipRect, new Color(150, 150, 180));
-
-        DrawScaledPixelText(spriteBatch, name, tooltipX + 10, tooltipY + 6, Color.White, 2);
-
-        Color priceColor = item.IsSellable ? new Color(255, 215, 0) : new Color(200, 100, 100);
-        DrawScaledPixelText(spriteBatch, priceText, tooltipX + 10, tooltipY + 24, priceColor, 1);
+        UIRenderer.DrawTooltip(spriteBatch, _pixel, item, Mouse.GetState().Position, viewport);
     }
 
     /// <summary>
@@ -581,7 +555,7 @@ public class ShippingMenu
             return;
 
         var mousePos = Mouse.GetState().Position;
-        Color itemColor = GetItemColor(_heldItem);
+        Color itemColor = UIRenderer.GetItemColor(_heldItem);
 
         int itemSize = SlotSize - ItemInset * 2;
         var itemRect = new Rectangle(
@@ -593,14 +567,14 @@ public class ShippingMenu
 
         Color dragColor = new Color((int)itemColor.R, (int)itemColor.G, (int)itemColor.B, 220);
         spriteBatch.Draw(_pixel, itemRect, dragColor);
-        DrawRectBorder(spriteBatch, itemRect, Color.White);
+        UIRenderer.DrawBorder(spriteBatch, _pixel, itemRect, Color.White, 1);
 
         if (_heldItem is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
-            int qtyX = itemRect.X + itemRect.Width - qtyStr.Length * 6 - 2;
+            int qtyX = itemRect.X + itemRect.Width - UIRenderer.MeasureString(qtyStr, 1) - 2;
             int qtyY = itemRect.Y + itemRect.Height - 10;
-            DrawScaledPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White, 1);
+            UIRenderer.DrawString(spriteBatch, _pixel, qtyStr, qtyX, qtyY, Color.White, 1);
         }
     }
 
@@ -612,7 +586,7 @@ public class ShippingMenu
         string goldText = $"Gold: {_player.Gold}g";
         int goldX = 20;
         int goldY = viewport.Height - 130;
-        DrawScaledPixelText(spriteBatch, goldText, goldX, goldY, new Color(255, 215, 0), 2);
+        UIRenderer.DrawString(spriteBatch, _pixel, goldText, goldX, goldY, new Color(255, 215, 0), 2);
 
         // Show pending value
         // BUG FIX (v2.15.1): Don't use CalculateTotalValue() - it includes LastShippedItem
@@ -640,144 +614,8 @@ public class ShippingMenu
             if (pendingValue > 0)
             {
                 string pendingText = $"Pending: +{pendingValue}g";
-                DrawScaledPixelText(spriteBatch, pendingText, goldX, goldY + 20, new Color(150, 255, 150), 1);
+                UIRenderer.DrawString(spriteBatch, _pixel, pendingText, goldX, goldY + 20, new Color(150, 255, 150), 1);
             }
         }
     }
-
-    /// <summary>
-    /// Get item color.
-    /// </summary>
-    private static Color GetItemColor(Item item)
-    {
-        return item.RegistryKey switch
-        {
-            "hoe" => new Color(139, 90, 43),
-            "axe" => new Color(100, 100, 100),
-            "pickaxe" => new Color(120, 120, 140),
-            "watering_can" => new Color(80, 130, 200),
-            "scythe" => new Color(180, 180, 100),
-            "earth_wand" => new Color(180, 140, 60),
-            "hydro_wand" => new Color(60, 180, 255),
-            "wood" => new Color(139, 90, 43),
-            "stone" => new Color(128, 128, 128),
-            "fiber" => new Color(34, 139, 34),
-            "corn" => new Color(255, 220, 80),
-            "tomato" => new Color(220, 50, 50),
-            "potato" => new Color(180, 140, 80),
-            _ => item switch
-            {
-                Tool => new Color(100, 150, 255),
-                Material => new Color(180, 160, 140),
-                _ => new Color(200, 200, 200)
-            }
-        };
-    }
-
-    /// <summary>
-    /// Draw rectangle border.
-    /// </summary>
-    private void DrawRectBorder(SpriteBatch spriteBatch, Rectangle rect, Color color)
-    {
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), color);
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), color);
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
-        spriteBatch.Draw(_pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
-    }
-
-    /// <summary>
-    /// Scaled pixel text.
-    /// </summary>
-    private void DrawScaledPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color, int scale)
-    {
-        int cursorX = x;
-        int charWidth = 5 * scale;
-        int spacing = scale;
-
-        foreach (char c in text)
-        {
-            DrawScaledPixelChar(spriteBatch, c, cursorX, y, color, scale);
-            cursorX += charWidth + spacing;
-        }
-    }
-
-    /// <summary>
-    /// Draw scaled pixel character.
-    /// </summary>
-    private void DrawScaledPixelChar(SpriteBatch spriteBatch, char c, int x, int y, Color color, int scale)
-    {
-        string[] pattern = GetCharPattern(c);
-
-        for (int row = 0; row < 7; row++)
-        {
-            for (int col = 0; col < 5; col++)
-            {
-                if (col < pattern[row].Length && pattern[row][col] == '#')
-                {
-                    spriteBatch.Draw(_pixel, new Rectangle(
-                        x + col * scale,
-                        y + row * scale,
-                        scale,
-                        scale
-                    ), color);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Get character pattern.
-    /// </summary>
-    private static string[] GetCharPattern(char c) => c switch
-    {
-        '0' => new[] { " ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### " },
-        '1' => new[] { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        '2' => new[] { " ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####" },
-        '3' => new[] { " ### ", "#   #", "    #", "  ## ", "    #", "#   #", " ### " },
-        '4' => new[] { "   # ", "  ## ", " # # ", "#  # ", "#####", "   # ", "   # " },
-        '5' => new[] { "#####", "#    ", "#### ", "    #", "    #", "#   #", " ### " },
-        '6' => new[] { " ### ", "#    ", "#### ", "#   #", "#   #", "#   #", " ### " },
-        '7' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   " },
-        '8' => new[] { " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### " },
-        '9' => new[] { " ### ", "#   #", "#   #", " ####", "    #", "   # ", " ##  " },
-        'A' => new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
-        'B' => new[] { "#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### " },
-        'C' => new[] { " ### ", "#   #", "#    ", "#    ", "#    ", "#   #", " ### " },
-        'D' => new[] { "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### " },
-        'E' => new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####" },
-        'F' => new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    " },
-        'G' => new[] { " ### ", "#   #", "#    ", "# ###", "#   #", "#   #", " ### " },
-        'H' => new[] { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
-        'I' => new[] { " ### ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'K' => new[] { "#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #" },
-        'L' => new[] { "#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####" },
-        'N' => new[] { "#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #" },
-        'O' => new[] { " ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-        'P' => new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'R' => new[] { "#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #" },
-        'S' => new[] { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " },
-        'T' => new[] { "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  " },
-        'U' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-        'a' => new[] { "     ", "     ", " ### ", "    #", " ####", "#   #", " ####" },
-        'c' => new[] { "     ", "     ", " ### ", "#    ", "#    ", "#    ", " ### " },
-        'd' => new[] { "    #", "    #", " ####", "#   #", "#   #", "#   #", " ####" },
-        'e' => new[] { "     ", "     ", " ### ", "#   #", "#####", "#    ", " ### " },
-        'f' => new[] { "  ## ", " #   ", "#### ", " #   ", " #   ", " #   ", " #   " },
-        'g' => new[] { "     ", " ####", "#   #", "#   #", " ####", "    #", " ### " },
-        'h' => new[] { "#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#   #" },
-        'i' => new[] { "  #  ", "     ", " ##  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'l' => new[] { " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'n' => new[] { "     ", "     ", "#### ", "#   #", "#   #", "#   #", "#   #" },
-        'o' => new[] { "     ", "     ", " ### ", "#   #", "#   #", "#   #", " ### " },
-        'p' => new[] { "     ", "#### ", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'r' => new[] { "     ", "     ", "# ## ", "##   ", "#    ", "#    ", "#    " },
-        's' => new[] { "     ", "     ", " ####", "#    ", " ### ", "    #", "#### " },
-        't' => new[] { " #   ", " #   ", "#### ", " #   ", " #   ", " #   ", "  ## " },
-        'u' => new[] { "     ", "     ", "#   #", "#   #", "#   #", "#   #", " ####" },
-        ' ' => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " },
-        ':' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     " },
-        '+' => new[] { "     ", "  #  ", "  #  ", "#####", "  #  ", "  #  ", "     " },
-        '-' => new[] { "     ", "     ", "     ", "#####", "     ", "     ", "     " },
-        _ => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " }
-    };
 }

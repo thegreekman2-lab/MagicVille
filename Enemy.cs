@@ -37,6 +37,12 @@ public class Enemy : IRenderable
     /// <summary>Enemy type name (e.g., "Goblin", "Slime").</summary>
     public string Name { get; set; } = "Enemy";
 
+    /// <summary>
+    /// Enemy type identifier for save/load factory recreation.
+    /// Must match one of: "Goblin", "Slime", "Skeleton".
+    /// </summary>
+    public string EnemyType { get; set; } = "Goblin";
+
     /// <summary>Current hit points.</summary>
     public int HP { get; set; } = 3;
 
@@ -264,11 +270,30 @@ public class Enemy : IRenderable
 
     #region Factory Methods
 
+    /// <summary>
+    /// Create an enemy by type identifier.
+    /// Used for save/load restoration.
+    /// </summary>
+    /// <param name="type">Enemy type: "Goblin", "Slime", "Skeleton".</param>
+    /// <param name="position">World position.</param>
+    /// <returns>Enemy instance with default stats for that type, or null if unknown type.</returns>
+    public static Enemy? CreateByType(string type, Vector2 position)
+    {
+        return type switch
+        {
+            "Goblin" => CreateGoblin(position),
+            "Slime" => CreateSlime(position),
+            "Skeleton" => CreateSkeleton(position),
+            _ => null // Unknown type
+        };
+    }
+
     /// <summary>Create a Goblin enemy.</summary>
     public static Enemy CreateGoblin(Vector2 position)
     {
         return new Enemy("Goblin", position, hp: 3, speed: 60f)
         {
+            EnemyType = "Goblin",
             Width = 36,
             Height = 40,
             BaseColor = new Color(50, 180, 50), // Green
@@ -282,6 +307,7 @@ public class Enemy : IRenderable
     {
         return new Enemy("Slime", position, hp: 2, speed: 40f)
         {
+            EnemyType = "Slime",
             Width = 32,
             Height = 28,
             BaseColor = new Color(100, 200, 100), // Light green
@@ -295,6 +321,7 @@ public class Enemy : IRenderable
     {
         return new Enemy("Skeleton", position, hp: 5, speed: 45f)
         {
+            EnemyType = "Skeleton",
             Width = 40,
             Height = 48,
             BaseColor = new Color(220, 220, 200), // Bone white

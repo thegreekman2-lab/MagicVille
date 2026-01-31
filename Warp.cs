@@ -55,10 +55,10 @@ public class Warp
                 tileSize
             ),
             TargetLocationName = targetLocation,
-            // Spawn at center of target tile, player position is feet (bottom-center)
+            // Spawn at center-X, bottom-Y of target tile (player position is feet/bottom-center)
             TargetPlayerPosition = new Vector2(
                 targetTileX * tileSize + tileSize / 2f,
-                targetTileY * tileSize + tileSize / 2f
+                targetTileY * tileSize + tileSize
             )
         };
     }

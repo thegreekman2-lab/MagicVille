@@ -8,6 +8,11 @@ public class Camera2D
     public Vector2 Position { get; set; }
     public float Zoom { get; set; } = 1f;
 
+    /// <summary>
+    /// Lerp speed for smooth camera following. Higher = snappier.
+    /// </summary>
+    public float SmoothSpeed { get; set; } = 5.0f;
+
     private readonly GraphicsDevice _graphicsDevice;
 
     /// <summary>Current viewport (always reflects current window size).</summary>
@@ -19,11 +24,20 @@ public class Camera2D
     }
 
     /// <summary>
-    /// Centers the camera on a world position.
+    /// Centers the camera on a world position (instant snap).
     /// </summary>
     public void CenterOn(Vector2 worldPosition)
     {
         Position = worldPosition;
+    }
+
+    /// <summary>
+    /// Smoothly moves the camera toward the target position using lerp.
+    /// Call this every frame for smooth following.
+    /// </summary>
+    public void Update(Vector2 targetPosition, float deltaTime)
+    {
+        Position = Vector2.Lerp(Position, targetPosition, SmoothSpeed * deltaTime);
     }
 
     /// <summary>

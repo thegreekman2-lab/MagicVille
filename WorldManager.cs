@@ -72,6 +72,9 @@ public class WorldManager
     // Event: Request to open dialogue (Game1 subscribes to this)
     public event Action<string>? OnOpenDialogue;
 
+    // Event: Request to open storage menu (Game1 subscribes to this)
+    public event Action<Chest>? OnOpenStorage;
+
     // Graphics resources (initialized in Initialize())
     private Texture2D _pixel = null!;
     private Texture2D _playerSpritesheet = null!;
@@ -663,6 +666,9 @@ public class WorldManager
         var bedPosition = GetAlignedPosition(2, 3, 64, 48);
         cabinObjects.Add(Bed.CreateWoodenBed(bedPosition));
 
+        // Place chest in the upper-right area
+        cabinObjects.Add(Chest.Create(6, 3));
+
         Debug.WriteLine($"[WorldManager] Spawned {cabinObjects.Count} cabin objects");
     }
 
@@ -725,8 +731,8 @@ public class WorldManager
         // Update inventory (slot selection via scroll/number keys)
         Player.Inventory.Update(Input.GetKeyboardState(), Input.GetMouseState());
 
-        // Camera follows player
-        Camera.CenterOn(Player.Center);
+        // Camera follows player with smooth lerp
+        Camera.Update(Player.Center, deltaTime);
 
         // Update targeting
         UpdateTargeting();
@@ -1137,6 +1143,12 @@ public class WorldManager
                 // Open the shipping menu UI (Game1 handles this via event)
                 OnOpenShippingMenu?.Invoke(bin);
                 Debug.WriteLine("[Interact] Opening shipping menu");
+                return true;
+
+            case Chest chest:
+                // Open the storage menu UI (Game1 handles this via event)
+                OnOpenStorage?.Invoke(chest);
+                Debug.WriteLine("[Interact] Opening chest storage");
                 return true;
 
             case Sign sign:
@@ -1945,39 +1957,57 @@ public class WorldManager
     }
 
     /// <summary>
-    /// Draw 1px red borders around collision rectangles for debugging.
-    /// Shows Player.CollisionBounds, WorldObject.BoundingBox, Enemy.BoundingBox, and attack hitbox.
+    /// Draw color-coded debug collision visualization.
+    /// - White/Gray: Movement colliders (player feet, object bases)
+    /// - Red: Hurtboxes (enemy bodies)
+    /// - Yellow: Active attack hitboxes (filled with alpha)
+    /// - Blue: Warp trigger zones
     /// </summary>
     private void DrawDebugCollisions(SpriteBatch spriteBatch)
     {
-        Color debugColor = Color.Red;
-        Color enemyColor = Color.Orange;
-        Color attackColor = Color.Yellow;
+        Color movementColor = Color.White;
+        Color objectColor = Color.Gray;
+        Color hurtboxColor = Color.Red;
+        Color hitboxColor = Color.Yellow;
+        Color hitboxFill = new Color(255, 255, 0, 60);
+        Color warpColor = Color.Blue;
 
-        // Draw player collision bounds
-        DrawRectBorder(spriteBatch, Player.CollisionBounds, debugColor);
+        // === MOVEMENT COLLIDERS (White/Gray) ===
+        // Player feet collision
+        DrawRectBorder(spriteBatch, Player.CollisionBounds, movementColor);
 
-        // Draw player attack hitbox (if holding a weapon)
-        var activeItem = Player.Inventory.GetActiveItem();
-        if (activeItem is Tool tool && tool.IsWeapon)
-        {
-            Rectangle attackHitbox = Player.GetAttackHitbox();
-            DrawRectBorder(spriteBatch, attackHitbox, attackColor);
-        }
-
-        // Draw world object bounding boxes
+        // World object bases (movement blockers)
         foreach (var obj in Objects)
         {
             if (obj.IsCollidable)
             {
-                DrawRectBorder(spriteBatch, obj.BoundingBox, debugColor);
+                DrawRectBorder(spriteBatch, obj.BoundingBox, objectColor);
             }
         }
 
-        // Draw enemy bounding boxes
+        // === HURTBOXES (Red) ===
+        // Enemy bodies (where they can be hit)
         foreach (var enemy in Enemies)
         {
-            DrawRectBorder(spriteBatch, enemy.BoundingBox, enemyColor);
+            DrawRectBorder(spriteBatch, enemy.BoundingBox, hurtboxColor);
+        }
+
+        // === ACTIVE HITBOXES (Yellow filled) ===
+        // Player attack hitbox (if holding a weapon)
+        var activeItem = Player.Inventory.GetActiveItem();
+        if (activeItem is Tool tool && tool.IsWeapon)
+        {
+            Rectangle attackHitbox = Player.GetAttackHitbox();
+            // Filled yellow with low alpha
+            spriteBatch.Draw(_pixel, attackHitbox, hitboxFill);
+            // Yellow border
+            DrawRectBorder(spriteBatch, attackHitbox, hitboxColor);
+        }
+
+        // === WARP TRIGGERS (Blue) ===
+        foreach (var warp in CurrentLocation.Warps)
+        {
+            DrawRectBorder(spriteBatch, warp.TriggerZone, warpColor);
         }
     }
 
@@ -2428,13 +2458,13 @@ public class WorldManager
     /// </summary>
     public SaveData CreateSaveData()
     {
-        // Save ALL locations (tiles + objects as DTOs)
+        // Save ALL locations (tiles + objects + enemies as DTOs)
         var locationSaveData = new List<LocationSaveData>();
 
         foreach (var (locationName, location) in Locations)
         {
+            // Serialize world objects
             var objectDtos = new List<WorldObjectData>();
-
             if (LocationObjects.TryGetValue(locationName, out var objs))
             {
                 foreach (var obj in objs)
@@ -2443,14 +2473,25 @@ public class WorldManager
                 }
             }
 
+            // Serialize enemies
+            var enemyDtos = new List<EnemyData>();
+            if (LocationEnemies.TryGetValue(locationName, out var enemies))
+            {
+                foreach (var enemy in enemies)
+                {
+                    enemyDtos.Add(EnemyToData(enemy));
+                }
+            }
+
             var locData = new LocationSaveData
             {
                 Name = locationName,
                 ModifiedTiles = GetModifiedTilesForLocation(location),
-                Objects = objectDtos
+                Objects = objectDtos,
+                Enemies = enemyDtos
             };
             locationSaveData.Add(locData);
-            Debug.WriteLine($"[Save] {locationName}: {locData.ModifiedTiles.Count} tiles, {locData.Objects.Count} objects");
+            Debug.WriteLine($"[Save] {locationName}: {locData.ModifiedTiles.Count} tiles, {locData.Objects.Count} objects, {locData.Enemies.Count} enemies");
         }
 
         return new SaveData
@@ -2539,12 +2580,39 @@ public class WorldManager
                 data.ShippingManifest = new List<ShippingBin.ShippedItem>(bin.ShippingManifest);
                 break;
 
+            case Chest chest:
+                data.Type = "chest";
+                data.ChestCapacity = chest.Capacity;
+                data.ChestStyle = chest.ChestStyle;
+                // Serialize chest contents
+                data.StorageItems = new List<ItemData?>(chest.Capacity);
+                for (int i = 0; i < chest.Capacity; i++)
+                {
+                    data.StorageItems.Add(Inventory.ToData(chest.GetSlot(i)));
+                }
+                break;
+
             default:
                 data.Type = "base";
                 break;
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// Convert an Enemy to flat DTO for serialization.
+    /// </summary>
+    private static EnemyData EnemyToData(Enemy enemy)
+    {
+        return new EnemyData
+        {
+            Type = enemy.EnemyType,
+            X = enemy.Position.X,
+            Y = enemy.Position.Y,
+            HP = enemy.HP,
+            MaxHP = enemy.MaxHP
+        };
     }
 
     /// <summary>
@@ -2564,8 +2632,9 @@ public class WorldManager
         Locations["Farm"] = GameLocation.CreateFarm(WorldSeed);
         Locations["Cabin"] = GameLocation.CreateCabin();
 
-        // Clear all location objects
+        // Clear all location objects and enemies
         LocationObjects.Clear();
+        LocationEnemies.Clear();
 
         // Restore ALL locations from save data
         foreach (var locData in data.Locations)
@@ -2607,7 +2676,23 @@ public class WorldManager
                     SpawnCabinObjects();
             }
 
-            Debug.WriteLine($"[Load] {locData.Name}: {locData.ModifiedTiles.Count} tiles, {LocationObjects.GetValueOrDefault(locData.Name)?.Count ?? 0} objects");
+            // Restore enemies from DTOs
+            if (locData.Enemies.Count > 0)
+            {
+                var enemies = new List<Enemy>();
+                foreach (var dto in locData.Enemies)
+                {
+                    var enemy = DataToEnemy(dto);
+                    if (enemy != null)
+                    {
+                        enemies.Add(enemy);
+                    }
+                }
+                LocationEnemies[locData.Name] = enemies;
+                Debug.WriteLine($"[Load] {locData.Name}: Restored {enemies.Count} enemies");
+            }
+
+            Debug.WriteLine($"[Load] {locData.Name}: {locData.ModifiedTiles.Count} tiles, {LocationObjects.GetValueOrDefault(locData.Name)?.Count ?? 0} objects, {LocationEnemies.GetValueOrDefault(locData.Name)?.Count ?? 0} enemies");
         }
 
         // Switch to saved location (default to Farm if not found)
@@ -2643,7 +2728,7 @@ public class WorldManager
         switch (data.Type)
         {
             case "crop":
-                return new Crop
+                var crop = new Crop
                 {
                     Name = data.Name,
                     Position = position,
@@ -2663,9 +2748,11 @@ public class WorldManager
                     HarvestResetStage = (CropStage)data.HarvestResetStage,
                     HarvestQuantity = data.HarvestQuantity
                 };
+                crop.UpdateVisuals();
+                return crop;
 
             case "tree":
-                return new Tree
+                var tree = new Tree
                 {
                     Name = data.Name,
                     Position = position,
@@ -2676,6 +2763,8 @@ public class WorldManager
                     DaysToMature = data.DaysToMature,
                     DaysToRegrow = data.DaysToRegrow
                 };
+                tree.UpdateVisuals();
+                return tree;
 
             case "mana_node":
                 return new ManaNode
@@ -2715,6 +2804,24 @@ public class WorldManager
                 bin.ShippingManifest = new List<ShippingBin.ShippedItem>(data.ShippingManifest);
                 return bin;
 
+            case "chest":
+                var chest = new Chest(data.ChestCapacity)
+                {
+                    Name = data.Name,
+                    Position = position,
+                    ChestStyle = data.ChestStyle
+                };
+                // Restore chest contents
+                if (data.StorageItems != null)
+                {
+                    for (int i = 0; i < data.StorageItems.Count && i < chest.Capacity; i++)
+                    {
+                        chest.SetSlot(i, Inventory.FromData(data.StorageItems[i]));
+                    }
+                }
+                chest.UpdateVisuals();
+                return chest;
+
             case "base":
             default:
                 return new WorldObject
@@ -2727,6 +2834,29 @@ public class WorldManager
                     IsCollidable = data.IsCollidable
                 };
         }
+    }
+
+    /// <summary>
+    /// Convert flat DTO back to an Enemy.
+    /// Uses factory to get base stats, then restores HP.
+    /// </summary>
+    private static Enemy? DataToEnemy(EnemyData data)
+    {
+        var position = new Vector2(data.X, data.Y);
+
+        // Use factory to create enemy with correct stats for type
+        var enemy = Enemy.CreateByType(data.Type, position);
+
+        if (enemy == null)
+        {
+            Debug.WriteLine($"[Load] WARNING: Unknown enemy type '{data.Type}'");
+            return null;
+        }
+
+        // Restore HP (may differ from MaxHP if enemy was damaged)
+        enemy.HP = data.HP;
+
+        return enemy;
     }
 
     /// <summary>

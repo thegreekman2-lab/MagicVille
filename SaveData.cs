@@ -83,6 +83,36 @@ public class ItemData
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// ENEMY DTO - Flat serialization for Enemies
+// ════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Flat DTO for Enemy serialization.
+/// Stores enemy type for factory reconstruction and current state.
+///
+/// RESTORATION STRATEGY:
+/// - Use Enemy.CreateByType(Type, Position) to get base stats
+/// - Then restore HP to saved value
+/// </summary>
+public class EnemyData
+{
+    /// <summary>Enemy type for factory recreation ("Goblin", "Slime", "Skeleton").</summary>
+    public string Type { get; set; } = "";
+
+    /// <summary>World position X.</summary>
+    public float X { get; set; }
+
+    /// <summary>World position Y.</summary>
+    public float Y { get; set; }
+
+    /// <summary>Current HP (may differ from MaxHP if damaged).</summary>
+    public int HP { get; set; }
+
+    /// <summary>Maximum HP (for reference).</summary>
+    public int MaxHP { get; set; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // WORLD OBJECT DTO - Flat serialization for polymorphic WorldObjects
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -98,6 +128,7 @@ public class ItemData
 /// - "bed": Bed furniture
 /// - "shipping_bin": ShippingBin with manifest
 /// - "sign": Sign with text
+/// - "chest": Chest with item storage
 /// </summary>
 public class WorldObjectData
 {
@@ -227,6 +258,22 @@ public class WorldObjectData
 
     /// <summary>Committed items in shipping manifest.</summary>
     public List<ShippingBin.ShippedItem> ShippingManifest { get; set; } = new();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CHEST-SPECIFIC FIELDS (Type == "chest")
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>Chest storage capacity.</summary>
+    public int ChestCapacity { get; set; } = 36;
+
+    /// <summary>Chest visual style.</summary>
+    public string ChestStyle { get; set; } = "wooden";
+
+    /// <summary>
+    /// Items stored in chest/container (also usable by future Furnaces, etc).
+    /// Null entries represent empty slots.
+    /// </summary>
+    public List<ItemData?>? StorageItems { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -234,7 +281,7 @@ public class WorldObjectData
 // ════════════════════════════════════════════════════════════════════════════
 
 /// <summary>
-/// Saves the state of a single location (tiles + objects).
+/// Saves the state of a single location (tiles + objects + enemies).
 /// Uses flat DTOs to avoid polymorphic serialization issues.
 /// </summary>
 public class LocationSaveData
@@ -247,6 +294,9 @@ public class LocationSaveData
 
     /// <summary>World objects in this location (flat DTOs).</summary>
     public List<WorldObjectData> Objects { get; set; } = new();
+
+    /// <summary>Enemies in this location (flat DTOs).</summary>
+    public List<EnemyData> Enemies { get; set; } = new();
 }
 
 // ════════════════════════════════════════════════════════════════════════════

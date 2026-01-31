@@ -18,8 +18,11 @@ namespace MagicVille;
 /// RENDER ORDER:
 /// 1. Background/Slots
 /// 2. Items in Slots (except held item)
-/// 3. Tooltip (hovered item name)
+/// 3. Tooltip (hovered item name + description)
 /// 4. Held Item at mouse position (floats above everything)
+///
+/// v2.18: Font/border/color rendering delegated to UIRenderer.
+/// Tooltip kept local (shows Name + Description, unlike UIRenderer's Name + Price).
 /// </summary>
 public class InventoryMenu
 {
@@ -251,18 +254,18 @@ public class InventoryMenu
         spriteBatch.Draw(_pixel, panelRect, new Color(30, 30, 40, 230));
 
         // Panel border
-        DrawRectBorder(spriteBatch, panelRect, new Color(80, 80, 100));
+        UIRenderer.DrawBorder(spriteBatch, _pixel, panelRect, new Color(80, 80, 100), 1);
 
         // Title (left side)
         string title = "INVENTORY";
         int titleY = panelY - 20;
-        DrawScaledPixelText(spriteBatch, title, panelX + 10, titleY, Color.White, 1);
+        UIRenderer.DrawString(spriteBatch, _pixel, title, panelX + 10, titleY, Color.White, 1);
 
         // Gold display (right side, gold/yellow color)
         string goldText = $"{_player.Gold}g";
-        int goldTextWidth = goldText.Length * 6; // 1x scale
+        int goldTextWidth = UIRenderer.MeasureString(goldText, 1);
         int goldX = panelX + panelWidth - goldTextWidth - 10;
-        DrawScaledPixelText(spriteBatch, goldText, goldX, titleY, new Color(255, 215, 0), 1); // Gold color
+        UIRenderer.DrawString(spriteBatch, _pixel, goldText, goldX, titleY, new Color(255, 215, 0), 1);
     }
 
     /// <summary>
@@ -311,7 +314,7 @@ public class InventoryMenu
             string slotNum = i == 9 ? "0" : (i + 1).ToString();
             int numX = rect.X + rect.Width - 10;
             int numY = rect.Y + 3;
-            DrawPixelText(spriteBatch, slotNum, numX, numY, new Color(100, 100, 110));
+            UIRenderer.DrawString(spriteBatch, _pixel, slotNum, numX, numY, new Color(100, 100, 110), 1);
         }
     }
 
@@ -341,7 +344,7 @@ public class InventoryMenu
     private void DrawItemInSlot(SpriteBatch spriteBatch, Item item, Rectangle slotRect)
     {
         // Item color based on type
-        Color itemColor = GetItemColor(item);
+        Color itemColor = UIRenderer.GetItemColor(item);
 
         // Item rectangle (inset from slot edges)
         var itemRect = new Rectangle(
@@ -357,14 +360,15 @@ public class InventoryMenu
         if (item is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
-            int qtyX = slotRect.X + slotRect.Width - qtyStr.Length * 6 - 4;
+            int qtyX = slotRect.X + slotRect.Width - UIRenderer.MeasureString(qtyStr, 1) - 4;
             int qtyY = slotRect.Y + slotRect.Height - 12;
-            DrawPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White);
+            UIRenderer.DrawString(spriteBatch, _pixel, qtyStr, qtyX, qtyY, Color.White, 1);
         }
     }
 
     /// <summary>
     /// Draw tooltip for hovered item.
+    /// Shows Name + Description (different from UIRenderer.DrawTooltip which shows Name + Price).
     /// Uses scaled text (2x) for better readability.
     /// </summary>
     private void DrawTooltip(SpriteBatch spriteBatch, Viewport viewport)
@@ -386,16 +390,15 @@ public class InventoryMenu
 
         // Text scale for readability
         const int textScale = 2;
-        const int charWidth = 5 * textScale + textScale; // 5px * scale + spacing
-        const int charHeight = 7 * textScale;
+        int charHeight = UIRenderer.MeasureHeight(textScale);
 
         // Build tooltip text - FULL item name, no truncation
         string name = item.Name;
         string? description = item.Description;
 
         // Calculate tooltip size based on scaled text
-        int nameWidth = name.Length * charWidth;
-        int descWidth = !string.IsNullOrEmpty(description) ? description.Length * charWidth : 0;
+        int nameWidth = UIRenderer.MeasureString(name, textScale);
+        int descWidth = !string.IsNullOrEmpty(description) ? UIRenderer.MeasureString(description, textScale) : 0;
         int tooltipWidth = Math.Max(nameWidth, descWidth) + 20;
         int tooltipHeight = string.IsNullOrEmpty(description) ? charHeight + 16 : charHeight * 2 + 24;
 
@@ -412,15 +415,15 @@ public class InventoryMenu
         // Draw background (dark with transparency)
         var tooltipRect = new Rectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
         spriteBatch.Draw(_pixel, tooltipRect, new Color(0, 0, 0, 200));
-        DrawRectBorder(spriteBatch, tooltipRect, new Color(150, 150, 180));
+        UIRenderer.DrawBorder(spriteBatch, _pixel, tooltipRect, new Color(150, 150, 180), 1);
 
         // Draw FULL item name (scaled)
-        DrawScaledPixelText(spriteBatch, name, tooltipX + 10, tooltipY + 8, Color.White, textScale);
+        UIRenderer.DrawString(spriteBatch, _pixel, name, tooltipX + 10, tooltipY + 8, Color.White, textScale);
 
         // Draw description (scaled, gray)
         if (!string.IsNullOrEmpty(description))
         {
-            DrawScaledPixelText(spriteBatch, description, tooltipX + 10, tooltipY + 8 + charHeight + 4, new Color(180, 180, 180), textScale);
+            UIRenderer.DrawString(spriteBatch, _pixel, description, tooltipX + 10, tooltipY + 8 + charHeight + 4, new Color(180, 180, 180), textScale);
         }
     }
 
@@ -433,7 +436,7 @@ public class InventoryMenu
             return;
 
         var mousePos = Mouse.GetState().Position;
-        Color itemColor = GetItemColor(_heldItem);
+        Color itemColor = UIRenderer.GetItemColor(_heldItem);
 
         // Draw item centered on mouse
         int itemSize = SlotSize - ItemInset * 2;
@@ -449,215 +452,15 @@ public class InventoryMenu
         spriteBatch.Draw(_pixel, itemRect, dragColor);
 
         // Draw border around held item
-        DrawRectBorder(spriteBatch, itemRect, Color.White);
+        UIRenderer.DrawBorder(spriteBatch, _pixel, itemRect, Color.White, 1);
 
         // Quantity for materials
         if (_heldItem is Material mat && mat.Quantity > 1)
         {
             string qtyStr = mat.Quantity.ToString();
-            int qtyX = itemRect.X + itemRect.Width - qtyStr.Length * 6 - 2;
+            int qtyX = itemRect.X + itemRect.Width - UIRenderer.MeasureString(qtyStr, 1) - 2;
             int qtyY = itemRect.Y + itemRect.Height - 10;
-            DrawPixelText(spriteBatch, qtyStr, qtyX, qtyY, Color.White);
+            UIRenderer.DrawString(spriteBatch, _pixel, qtyStr, qtyX, qtyY, Color.White, 1);
         }
     }
-
-    /// <summary>
-    /// Get color for an item based on its type/registry key.
-    /// </summary>
-    private static Color GetItemColor(Item item)
-    {
-        return item.RegistryKey switch
-        {
-            // Standard Tools
-            "hoe" => new Color(139, 90, 43),
-            "axe" => new Color(100, 100, 100),
-            "pickaxe" => new Color(120, 120, 140),
-            "watering_can" => new Color(80, 130, 200),
-            "scythe" => new Color(180, 180, 100),
-            // Weapons
-            "sword" => new Color(200, 200, 220),    // Steel gray
-            // Magic Wands
-            "earth_wand" => new Color(180, 140, 60),
-            "hydro_wand" => new Color(60, 180, 255),
-            // Materials
-            "wood" => new Color(139, 90, 43),
-            "stone" => new Color(128, 128, 128),
-            "fiber" => new Color(34, 139, 34),
-            "coal" => new Color(30, 30, 30),
-            "copper_ore" => new Color(184, 115, 51),
-            // Harvest Items
-            "corn" => new Color(255, 220, 80),
-            "tomato" => new Color(220, 50, 50),
-            "potato" => new Color(180, 140, 80),
-            "carrot" => new Color(255, 140, 0),
-            "wheat" => new Color(220, 190, 100),
-            _ => item switch
-            {
-                Tool => new Color(100, 150, 255),
-                Material => new Color(180, 160, 140),
-                _ => new Color(200, 200, 200)
-            }
-        };
-    }
-
-    /// <summary>
-    /// Draw a 1px border around a rectangle.
-    /// </summary>
-    private void DrawRectBorder(SpriteBatch spriteBatch, Rectangle rect, Color color)
-    {
-        // Top
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), color);
-        // Bottom
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), color);
-        // Left
-        spriteBatch.Draw(_pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
-        // Right
-        spriteBatch.Draw(_pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
-    }
-
-    /// <summary>
-    /// Simple pixel-based text rendering (1x scale).
-    /// </summary>
-    private void DrawPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color)
-    {
-        DrawScaledPixelText(spriteBatch, text, x, y, color, 1);
-    }
-
-    /// <summary>
-    /// Scaled pixel-based text rendering.
-    /// Scale of 2 makes each pixel 2x2, etc.
-    /// </summary>
-    private void DrawScaledPixelText(SpriteBatch spriteBatch, string text, int x, int y, Color color, int scale)
-    {
-        int cursorX = x;
-        int charWidth = 5 * scale;
-        int spacing = scale;
-
-        foreach (char c in text)
-        {
-            DrawScaledPixelChar(spriteBatch, c, cursorX, y, color, scale);
-            cursorX += charWidth + spacing;
-        }
-    }
-
-    /// <summary>
-    /// Draw a single character using pixel patterns with scaling.
-    /// </summary>
-    private void DrawScaledPixelChar(SpriteBatch spriteBatch, char c, int x, int y, Color color, int scale)
-    {
-        string[] pattern = GetCharPattern(c);
-
-        for (int row = 0; row < 7; row++)
-        {
-            for (int col = 0; col < 5; col++)
-            {
-                if (col < pattern[row].Length && pattern[row][col] == '#')
-                {
-                    spriteBatch.Draw(_pixel, new Rectangle(
-                        x + col * scale,
-                        y + row * scale,
-                        scale,
-                        scale
-                    ), color);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Get 5x7 pixel pattern for a character.
-    /// Supports uppercase, lowercase (rendered as small caps), digits, and punctuation.
-    /// </summary>
-    private static string[] GetCharPattern(char c) => c switch
-    {
-        // Digits
-        '0' => new[] { " ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### " },
-        '1' => new[] { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        '2' => new[] { " ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####" },
-        '3' => new[] { " ### ", "#   #", "    #", "  ## ", "    #", "#   #", " ### " },
-        '4' => new[] { "   # ", "  ## ", " # # ", "#  # ", "#####", "   # ", "   # " },
-        '5' => new[] { "#####", "#    ", "#### ", "    #", "    #", "#   #", " ### " },
-        '6' => new[] { " ### ", "#    ", "#### ", "#   #", "#   #", "#   #", " ### " },
-        '7' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   " },
-        '8' => new[] { " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### " },
-        '9' => new[] { " ### ", "#   #", "#   #", " ####", "    #", "   # ", " ##  " },
-
-        // Uppercase letters
-        'A' => new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
-        'B' => new[] { "#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### " },
-        'C' => new[] { " ### ", "#   #", "#    ", "#    ", "#    ", "#   #", " ### " },
-        'D' => new[] { "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### " },
-        'E' => new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####" },
-        'F' => new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    " },
-        'G' => new[] { " ### ", "#   #", "#    ", "# ###", "#   #", "#   #", " ### " },
-        'H' => new[] { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
-        'I' => new[] { " ### ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'J' => new[] { "  ###", "   # ", "   # ", "   # ", "#  # ", "#  # ", " ##  " },
-        'K' => new[] { "#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #" },
-        'L' => new[] { "#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####" },
-        'M' => new[] { "#   #", "## ##", "# # #", "#   #", "#   #", "#   #", "#   #" },
-        'N' => new[] { "#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #" },
-        'O' => new[] { " ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-        'P' => new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'Q' => new[] { " ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #" },
-        'R' => new[] { "#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #" },
-        'S' => new[] { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " },
-        'T' => new[] { "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  " },
-        'U' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-        'V' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  " },
-        'W' => new[] { "#   #", "#   #", "#   #", "#   #", "# # #", "## ##", "#   #" },
-        'X' => new[] { "#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #" },
-        'Y' => new[] { "#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  " },
-        'Z' => new[] { "#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####" },
-
-        // Lowercase letters (rendered slightly smaller/different where practical)
-        'a' => new[] { "     ", "     ", " ### ", "    #", " ####", "#   #", " ####" },
-        'b' => new[] { "#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#### " },
-        'c' => new[] { "     ", "     ", " ### ", "#    ", "#    ", "#    ", " ### " },
-        'd' => new[] { "    #", "    #", " ####", "#   #", "#   #", "#   #", " ####" },
-        'e' => new[] { "     ", "     ", " ### ", "#   #", "#####", "#    ", " ### " },
-        'f' => new[] { "  ## ", " #   ", "#### ", " #   ", " #   ", " #   ", " #   " },
-        'g' => new[] { "     ", " ####", "#   #", "#   #", " ####", "    #", " ### " },
-        'h' => new[] { "#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#   #" },
-        'i' => new[] { "  #  ", "     ", " ##  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'j' => new[] { "   # ", "     ", "  ## ", "   # ", "   # ", "#  # ", " ##  " },
-        'k' => new[] { "#    ", "#    ", "#  # ", "# #  ", "##   ", "# #  ", "#  # " },
-        'l' => new[] { " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " },
-        'm' => new[] { "     ", "     ", "## # ", "# # #", "# # #", "#   #", "#   #" },
-        'n' => new[] { "     ", "     ", "#### ", "#   #", "#   #", "#   #", "#   #" },
-        'o' => new[] { "     ", "     ", " ### ", "#   #", "#   #", "#   #", " ### " },
-        'p' => new[] { "     ", "#### ", "#   #", "#### ", "#    ", "#    ", "#    " },
-        'q' => new[] { "     ", " ####", "#   #", " ####", "    #", "    #", "    #" },
-        'r' => new[] { "     ", "     ", "# ## ", "##   ", "#    ", "#    ", "#    " },
-        's' => new[] { "     ", "     ", " ####", "#    ", " ### ", "    #", "#### " },
-        't' => new[] { " #   ", " #   ", "#### ", " #   ", " #   ", " #   ", "  ## " },
-        'u' => new[] { "     ", "     ", "#   #", "#   #", "#   #", "#   #", " ####" },
-        'v' => new[] { "     ", "     ", "#   #", "#   #", "#   #", " # # ", "  #  " },
-        'w' => new[] { "     ", "     ", "#   #", "#   #", "# # #", "# # #", " # # " },
-        'x' => new[] { "     ", "     ", "#   #", " # # ", "  #  ", " # # ", "#   #" },
-        'y' => new[] { "     ", "#   #", "#   #", " ####", "    #", "   # ", "###  " },
-        'z' => new[] { "     ", "     ", "#####", "   # ", "  #  ", " #   ", "#####" },
-
-        // Punctuation and symbols
-        ' ' => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " },
-        '.' => new[] { "     ", "     ", "     ", "     ", "     ", "  #  ", "  #  " },
-        ',' => new[] { "     ", "     ", "     ", "     ", "  #  ", "  #  ", " #   " },
-        ':' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     " },
-        ';' => new[] { "     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", " #   " },
-        '!' => new[] { "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  " },
-        '?' => new[] { " ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  " },
-        '-' => new[] { "     ", "     ", "     ", "#####", "     ", "     ", "     " },
-        '+' => new[] { "     ", "  #  ", "  #  ", "#####", "  #  ", "  #  ", "     " },
-        '=' => new[] { "     ", "     ", "#####", "     ", "#####", "     ", "     " },
-        '(' => new[] { "  #  ", " #   ", "#    ", "#    ", "#    ", " #   ", "  #  " },
-        ')' => new[] { "  #  ", "   # ", "    #", "    #", "    #", "   # ", "  #  " },
-        '[' => new[] { " ### ", " #   ", " #   ", " #   ", " #   ", " #   ", " ### " },
-        ']' => new[] { " ### ", "   # ", "   # ", "   # ", "   # ", "   # ", " ### " },
-        '/' => new[] { "    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    " },
-        '\'' => new[] { "  #  ", "  #  ", " #   ", "     ", "     ", "     ", "     " },
-        '"' => new[] { " # # ", " # # ", "     ", "     ", "     ", "     ", "     " },
-
-        // Default: empty
-        _ => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " }
-    };
 }

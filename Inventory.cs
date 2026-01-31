@@ -309,6 +309,18 @@ public class Inventory
         };
     }
 
+    /// <summary>
+    /// Convert an Item to ItemData DTO.
+    /// Alias for ItemToData() - provides cleaner API for external callers.
+    /// </summary>
+    public static ItemData? ToData(Item? item) => ItemToData(item);
+
+    /// <summary>
+    /// Convert ItemData DTO back to an Item.
+    /// Alias for DataToItem() - provides cleaner API for external callers.
+    /// </summary>
+    public static Item? FromData(ItemData? data) => DataToItem(data);
+
     #endregion
 
     /// <summary>Give starter items for new game.</summary>

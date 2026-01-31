@@ -14,7 +14,8 @@ public enum GameState
     Playing,    // Normal gameplay - world updates, player moves
     Inventory,  // Inventory menu open - world paused, UI active
     Shipping,   // Shipping bin menu open - drag items to sell
-    Dialogue    // Dialogue box displayed - world paused, reading text
+    Dialogue,   // Dialogue box displayed - world paused, reading text
+    Storage     // Storage menu open - transfer items to/from chest
 }
 
 public class Game1 : Game
@@ -24,6 +25,7 @@ public class Game1 : Game
     private WorldManager _world = null!;
     private InventoryMenu _inventoryMenu = null!;
     private ShippingMenu _shippingMenu = null!;
+    private StorageMenu _storageMenu = null!;
     private Texture2D _pixel = null!;
 
     // Input tracking for state transitions
@@ -34,6 +36,9 @@ public class Game1 : Game
 
     // Reference to active shipping bin (set when opening shipping menu)
     private ShippingBin? _activeShippingBin;
+
+    // Reference to active chest (set when opening storage menu)
+    private Chest? _activeChest;
 
     // Animation timer for UI effects
     private double _totalTime;
@@ -91,9 +96,13 @@ public class Game1 : Game
         // Initialize shipping menu
         _shippingMenu = new ShippingMenu(_world.Player, _pixel, GraphicsDevice);
 
+        // Initialize storage menu
+        _storageMenu = new StorageMenu(_world.Player, _pixel, GraphicsDevice);
+
         // Subscribe to world events
         _world.OnOpenShippingMenu += OpenShippingMenu;
         _world.OnOpenDialogue += OpenDialogue;
+        _world.OnOpenStorage += OpenStorageMenu;
     }
 
     protected override void Update(GameTime gameTime)
@@ -119,6 +128,10 @@ public class Game1 : Game
 
             case GameState.Dialogue:
                 UpdateDialogue(gameTime, keyboard);
+                break;
+
+            case GameState.Storage:
+                UpdateStorage(gameTime, keyboard);
                 break;
         }
 
@@ -187,6 +200,27 @@ public class Game1 : Game
     }
 
     /// <summary>
+    /// Update logic for Storage state.
+    /// World is paused, storage menu handles item transfers.
+    /// </summary>
+    private void UpdateStorage(GameTime gameTime, KeyboardState keyboard)
+    {
+        // Check for state transition back to Playing
+        if (IsKeyPressed(keyboard, Keys.E) ||
+            IsKeyPressed(keyboard, Keys.Tab) ||
+            IsKeyPressed(keyboard, Keys.Escape))
+        {
+            _storageMenu.Close();
+            _activeChest = null;
+            CurrentState = GameState.Playing;
+            return;
+        }
+
+        // Update storage menu (handles click-to-transfer)
+        _storageMenu.Update(Mouse.GetState());
+    }
+
+    /// <summary>
     /// Update logic for Dialogue state.
     /// World is paused, dialogue box handles typewriter and input.
     /// </summary>
@@ -221,6 +255,17 @@ public class Game1 : Game
             CurrentState = GameState.Playing;
         });
         CurrentState = GameState.Dialogue;
+    }
+
+    /// <summary>
+    /// Open the storage menu for a specific chest.
+    /// Called by WorldManager when player interacts with Chest.
+    /// </summary>
+    public void OpenStorageMenu(Chest chest)
+    {
+        _activeChest = chest;
+        _storageMenu.Open(chest);
+        CurrentState = GameState.Storage;
     }
 
     /// <summary>
@@ -263,6 +308,10 @@ public class Game1 : Game
         {
             DrawDialogueOverlay(viewport);
         }
+        else if (CurrentState == GameState.Storage)
+        {
+            DrawStorageOverlay(viewport);
+        }
 
         base.Draw(gameTime);
     }
@@ -286,6 +335,22 @@ public class Game1 : Game
 
         // Draw shipping menu (has its own SpriteBatch begin/end)
         _shippingMenu.Draw(_spriteBatch, viewport);
+    }
+
+    /// <summary>
+    /// Draw the storage menu overlay.
+    /// </summary>
+    private void DrawStorageOverlay(Viewport viewport)
+    {
+        _spriteBatch.Begin(
+            sortMode: SpriteSortMode.Deferred,
+            blendState: BlendState.AlphaBlend,
+            samplerState: SamplerState.PointClamp
+        );
+
+        _storageMenu.Draw(_spriteBatch);
+
+        _spriteBatch.End();
     }
 
     /// <summary>
@@ -339,61 +404,11 @@ public class Game1 : Game
         // Scale = 3 for visibility (each pixel becomes 3x3)
         string text = "PAUSED";
         int scale = 3;
-        int charWidth = 5 * scale + scale; // 5px char * scale + spacing
-        int textWidth = text.Length * charWidth;
+        int textWidth = UIRenderer.MeasureString(text, scale);
         int startX = viewport.Width - textWidth - 20; // 20px from right edge
         int startY = 70; // Below clock
 
-        DrawScaledPixelText(text, startX, startY, textColor, scale);
-    }
-
-    /// <summary>
-    /// Scaled pixel-based text rendering.
-    /// </summary>
-    private void DrawScaledPixelText(string text, int x, int y, Color color, int scale)
-    {
-        int cursorX = x;
-        int charWidth = 5 * scale;
-        int spacing = scale;
-
-        foreach (char c in text)
-        {
-            DrawScaledPixelChar(c, cursorX, y, color, scale);
-            cursorX += charWidth + spacing;
-        }
-    }
-
-    /// <summary>
-    /// Draw a single character using pixel patterns with scaling.
-    /// </summary>
-    private void DrawScaledPixelChar(char c, int x, int y, Color color, int scale)
-    {
-        string[] pattern = c switch
-        {
-            'P' => new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " },
-            'A' => new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" },
-            'U' => new[] { "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " },
-            'S' => new[] { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " },
-            'E' => new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####" },
-            'D' => new[] { "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### " },
-            _ => new[] { "     ", "     ", "     ", "     ", "     ", "     ", "     " }
-        };
-
-        for (int row = 0; row < 7; row++)
-        {
-            for (int col = 0; col < 5; col++)
-            {
-                if (col < pattern[row].Length && pattern[row][col] == '#')
-                {
-                    _spriteBatch.Draw(_pixel, new Rectangle(
-                        x + col * scale,
-                        y + row * scale,
-                        scale,
-                        scale
-                    ), color);
-                }
-            }
-        }
+        UIRenderer.DrawString(_spriteBatch, _pixel, text, startX, startY, textColor, scale);
     }
 
     /// <summary>

@@ -1,6 +1,68 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 ## Build Commands
 
@@ -18,10 +80,11 @@ MagicVille is a 2D farming RPG built with MonoGame targeting .NET 8.0 (DesktopGL
 
 ### Core Game Loop
 - **Program.cs**: Entry point
-- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory/Shipping/Dialogue)
+- **Game1.cs**: MonoGame Game class with FSM state management (Playing/Inventory/Shipping/Dialogue/Storage)
 - **WorldManager.cs**: Central orchestrator - manages game state, update loop, rendering, and tool interaction
 - **InventoryMenu.cs**: Inventory UI with drag-and-drop (View-Model pattern)
 - **ShippingMenu.cs**: Shipping bin UI for selling items (Stardew-style, v2.9)
+- **StorageMenu.cs**: Chest UI with click-to-transfer (v2.17)
 - **DialogueSystem.cs**: Static dialogue manager with typewriter effect (v2.11)
 
 ### World & Tiles
@@ -192,6 +255,74 @@ else PlayWooshSound(); // Miss
 - **Sign.cs**: WorldObject subclass for readable signs
 - **OnOpenDialogue Event**: WorldManager → Game1 communication
 
+### Storage System (v2.17)
+- **Chest.cs**: Storage container WorldObject with smart stacking
+- **StorageMenu.cs**: Click-to-transfer UI (no drag-and-drop)
+- **OnOpenStorage Event**: WorldManager → Game1 communication
+
+**Chest Storage** (`Chest.cs`)
+```csharp
+public class Chest : WorldObject
+{
+    public int Capacity { get; set; } = 36;           // 9x4 grid default
+    public Item?[] Slots { get; private set; }        // Storage slots
+    public string Style { get; set; } = "wood";       // Visual style
+
+    // Smart stacking: merges with existing stacks before using empty slots
+    public bool AddItem(Item item)
+    {
+        // 1. Try to stack with existing matching items
+        if (item is Material mat)
+        {
+            foreach (var slot in Slots)
+                if (slot is Material existing && existing.CanStackWith(mat))
+                {
+                    existing.Quantity += mat.Quantity;
+                    return true;
+                }
+        }
+        // 2. Find first empty slot
+        for (int i = 0; i < Capacity; i++)
+            if (Slots[i] == null) { Slots[i] = item; return true; }
+        return false;  // Full
+    }
+}
+```
+
+**Storage Menu** (`StorageMenu.cs`)
+- **Layout**: Top = chest grid (capacity-based), Bottom = player hotbar
+- **Interaction**: Click item → instant transfer (no dragging)
+- **Transfer Logic**: Uses `AddItem()` for smart stacking
+
+```csharp
+// Click on inventory slot → transfer to chest
+private void TransferToChest(int invSlot)
+{
+    var item = PlayerInventory.GetSlot(invSlot);
+    if (_activeChest.AddItem(item))
+        PlayerInventory.SetSlot(invSlot, null);  // Success
+    // else: Chest full, item stays in inventory
+}
+
+// Click on chest slot → transfer to inventory
+private void TransferToInventory(int chestSlot)
+{
+    var item = _activeChest.GetSlot(chestSlot);
+    if (PlayerInventory.AddItem(item))
+        _activeChest.SetSlot(chestSlot, null);  // Success
+    // else: Inventory full, item stays in chest
+}
+```
+
+**Chest Persistence** (v2.17)
+Chests save their contents via `WorldObjectData`:
+```csharp
+// WorldObjectData fields for chests
+public List<ItemData>? StorageItems { get; set; }
+public int ChestCapacity { get; set; }
+public string? ChestStyle { get; set; }
+```
+
 ### World Objects & Rendering
 - **WorldObject.cs**: Physical objects (rocks, trees, bushes, mana nodes) with collision
 - **IRenderable.cs**: Interface for Y-sortable entities (Player, WorldObject)
@@ -253,10 +384,10 @@ var item = Inventory.DataToItem(itemData);  // Recreates with all properties
 
 ## Key Patterns
 
-### Game State FSM (v2.8+)
+### Game State FSM (v2.8+, Storage v2.17)
 High-level game flow control using Finite State Machine:
 ```csharp
-public enum GameState { Playing, Inventory, Shipping }
+public enum GameState { Playing, Inventory, Shipping, Dialogue, Storage }
 public GameState CurrentState { get; private set; }
 
 protected override void Update(GameTime gameTime)
@@ -267,6 +398,7 @@ protected override void Update(GameTime gameTime)
             // World updates, player moves, time passes
             // E/Tab → transition to Inventory
             // Click ShippingBin → transition to Shipping
+            // Click Chest → transition to Storage
             _world.Update(gameTime);
             break;
 
@@ -282,6 +414,13 @@ protected override void Update(GameTime gameTime)
             // Drag items to bin slot to sell
             // E/Tab/Esc → finalize and return to Playing
             _shippingMenu.Update(Mouse.GetState());
+            break;
+
+        case GameState.Storage:
+            // World PAUSED, storage menu active
+            // Click-to-transfer items between chest and inventory
+            // E/Tab/Esc → close and return to Playing
+            _storageMenu.Update(Mouse.GetState());
             break;
     }
 }
